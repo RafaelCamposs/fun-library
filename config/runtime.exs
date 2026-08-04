@@ -27,6 +27,8 @@ if cors_origin = System.get_env("CORS_ORIGIN") do
   config :cors_plug, origin: String.split(cors_origin, ",")
 end
 
+config :fun_library, :google_books_api_key, System.get_env("GOOGLE_BOOKS_API_KEY")
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
