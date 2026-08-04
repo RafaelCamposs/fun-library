@@ -23,6 +23,10 @@ end
 config :fun_library, FunLibraryWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+if cors_origin = System.get_env("CORS_ORIGIN") do
+  config :cors_plug, origin: String.split(cors_origin, ",")
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
