@@ -5,6 +5,8 @@ defmodule FunLibraryWeb.Router do
     plug :accepts, ["json"]
   end
 
+  get "/health", FunLibraryWeb.HealthController, :index
+
   scope "/api", FunLibraryWeb do
     pipe_through :api
 
