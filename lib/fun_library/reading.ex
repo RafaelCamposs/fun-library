@@ -172,17 +172,20 @@ defmodule FunLibrary.Reading do
     Repo.delete(session)
   end
 
+  @resumable_statuses [:want_to, :stopped, :unfinished]
+
   @doc """
-  Marks a reading list entry as being read: flips a `:want_to` entry to
-  `:reading` and sets `started_at` if it hasn't been set yet. No-op if
-  neither applies.
+  Marks a reading list entry as being read: flips a `:want_to`, `:stopped`,
+  or `:unfinished` entry to `:reading`, and sets `started_at` if it hasn't
+  been set yet. No-op if neither applies (e.g. already `:reading`, or
+  `:read`).
   """
   def mark_entry_started(entry_id) do
     entry = get_reading_list_entry!(entry_id)
 
     changes =
       %{}
-      |> maybe_put_change(:status, :reading, entry.status == :want_to)
+      |> maybe_put_change(:status, :reading, entry.status in @resumable_statuses)
       |> maybe_put_change(:started_at, Date.utc_today(), is_nil(entry.started_at))
 
     if changes == %{} do

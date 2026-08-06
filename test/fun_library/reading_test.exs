@@ -122,6 +122,50 @@ defmodule FunLibrary.ReadingTest do
       assert updated_entry.status == :reading
     end
 
+    test "start_session/2 flips a :stopped entry back to :reading" do
+      entry = reading_list_entry_fixture(status: :stopped, started_at: ~D[2026-07-01])
+
+      assert {:ok, _session} =
+               Reading.start_session(entry.id, %{
+                 "start_page" => 0,
+                 "started_at" => ~U[2026-07-18 18:46:00Z]
+               })
+
+      updated_entry = Reading.get_reading_list_entry!(entry.id)
+      assert updated_entry.status == :reading
+    end
+
+    test "start_session/2 flips an :unfinished entry back to :reading" do
+      entry = reading_list_entry_fixture(status: :unfinished, started_at: ~D[2026-07-01])
+
+      assert {:ok, _session} =
+               Reading.start_session(entry.id, %{
+                 "start_page" => 0,
+                 "started_at" => ~U[2026-07-18 18:46:00Z]
+               })
+
+      updated_entry = Reading.get_reading_list_entry!(entry.id)
+      assert updated_entry.status == :reading
+    end
+
+    test "start_session/2 does not flip a :read entry back to :reading" do
+      entry =
+        reading_list_entry_fixture(
+          status: :read,
+          started_at: ~D[2026-07-01],
+          finished_at: ~D[2026-07-15]
+        )
+
+      assert {:ok, _session} =
+               Reading.start_session(entry.id, %{
+                 "start_page" => 0,
+                 "started_at" => ~U[2026-07-18 18:46:00Z]
+               })
+
+      updated_entry = Reading.get_reading_list_entry!(entry.id)
+      assert updated_entry.status == :read
+    end
+
     test "start_session/2 rejects a second open session for the same entry" do
       entry = reading_list_entry_fixture()
       session_fixture(entry.id)
