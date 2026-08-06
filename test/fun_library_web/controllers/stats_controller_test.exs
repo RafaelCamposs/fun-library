@@ -86,5 +86,27 @@ defmodule FunLibraryWeb.StatsControllerTest do
         get(conn, ~p"/api/reading_list_entries/999999/stats")
       end
     end
+
+    test "uses the entry's total_pages override instead of the book's when set", %{conn: conn} do
+      entry =
+        reading_list_entry_fixture(%{
+          started_at: ~D[2026-07-10],
+          book_id: book_fixture(%{total_pages: 100}).id
+        })
+
+      {:ok, entry} = Reading.update_entry_pages(entry, %{"total_pages" => 40})
+
+      session =
+        session_fixture(entry.id, %{"start_page" => 0, "started_at" => ~U[2026-07-10 10:00:00Z]})
+
+      {:ok, _} =
+        Reading.finish_session(session, %{
+          "end_page" => 20,
+          "ended_at" => ~U[2026-07-10 12:00:00Z]
+        })
+
+      conn = get(conn, ~p"/api/reading_list_entries/#{entry}/stats")
+      assert json_response(conn, 200)["data"]["percent_complete"] == 50.0
+    end
   end
 end

@@ -14,7 +14,7 @@ defmodule FunLibrary.Reading do
   Returns the list of reading list entries for a user.
   """
   def list_reading_list_entries(user_id) do
-    Repo.all(from e in ReadingListEntry, where: e.user_id == ^user_id)
+    Repo.all(from e in ReadingListEntry, where: e.user_id == ^user_id, preload: :book)
   end
 
   @doc """
@@ -22,15 +22,15 @@ defmodule FunLibrary.Reading do
 
   Raises `Ecto.NoResultsError` if the entry does not exist.
   """
-  def get_reading_list_entry!(id), do: Repo.get!(ReadingListEntry, id)
+  def get_reading_list_entry!(id), do: Repo.get!(ReadingListEntry, id) |> Repo.preload(:book)
 
   @doc """
   Creates a reading list entry.
   """
   def create_reading_list_entry(attrs) do
-    %ReadingListEntry{}
-    |> ReadingListEntry.changeset(attrs)
-    |> Repo.insert()
+    with {:ok, entry} <- %ReadingListEntry{} |> ReadingListEntry.changeset(attrs) |> Repo.insert() do
+      {:ok, Repo.preload(entry, :book)}
+    end
   end
 
   @doc """
@@ -39,6 +39,16 @@ defmodule FunLibrary.Reading do
   def update_reading_list_entry(%ReadingListEntry{} = entry, attrs) do
     entry
     |> ReadingListEntry.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
+  Sets (or clears, with `nil`) a per-entry `total_pages` override, used
+  when the catalog book's page count doesn't match the user's edition.
+  """
+  def update_entry_pages(%ReadingListEntry{} = entry, attrs) do
+    entry
+    |> ReadingListEntry.pages_changeset(attrs)
     |> Repo.update()
   end
 

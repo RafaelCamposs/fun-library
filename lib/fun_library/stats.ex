@@ -31,7 +31,7 @@ defmodule FunLibrary.Stats do
     sessions = list_sessions(entry_id)
 
     %{
-      percent_complete: percent_complete(entry.book, sessions),
+      percent_complete: percent_complete(entry, sessions),
       days_elapsed: days_elapsed(entry),
       pages_per_day: pages_per_day(sessions)
     }
@@ -77,7 +77,7 @@ defmodule FunLibrary.Stats do
       entry_id: entry.id,
       book_id: entry.book_id,
       title: entry.book.title,
-      percent_complete: percent_complete(entry.book, list_sessions(entry.id))
+      percent_complete: percent_complete(entry, list_sessions(entry.id))
     }
   end
 
@@ -87,14 +87,16 @@ defmodule FunLibrary.Stats do
     )
   end
 
-  defp percent_complete(%{total_pages: total_pages}, _sessions)
-       when is_nil(total_pages) or total_pages <= 0,
-       do: nil
+  defp percent_complete(%ReadingListEntry{} = entry, sessions) do
+    case entry.total_pages || entry.book.total_pages do
+      total_pages when is_nil(total_pages) or total_pages <= 0 ->
+        nil
 
-  defp percent_complete(%{total_pages: total_pages}, sessions) do
-    case current_page(sessions) do
-      nil -> 0.0
-      current_page -> Float.round(current_page / total_pages * 100, 1)
+      total_pages ->
+        case current_page(sessions) do
+          nil -> 0.0
+          current_page -> Float.round(current_page / total_pages * 100, 1)
+        end
     end
   end
 

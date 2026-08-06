@@ -22,7 +22,9 @@ defmodule FunLibraryWeb.ReadingListEntryJSON do
       book_id: entry.book_id,
       status: entry.status,
       started_at: entry.started_at,
-      finished_at: entry.finished_at
+      finished_at: entry.finished_at,
+      total_pages: entry.total_pages,
+      effective_total_pages: entry.total_pages || entry.book.total_pages
     }
   end
 end

@@ -83,6 +83,47 @@ defmodule FunLibraryWeb.ReadingListEntryControllerTest do
     end
   end
 
+  describe "update pages" do
+    setup [:create_entry]
+
+    test "effective_total_pages falls back to the book's total_pages with no override", %{
+      conn: conn,
+      entry: entry
+    } do
+      conn = get(conn, ~p"/api/reading_list_entries/#{entry}")
+
+      assert %{"total_pages" => nil, "effective_total_pages" => 42} =
+               json_response(conn, 200)["data"]
+    end
+
+    test "sets a total_pages override", %{conn: conn, entry: %ReadingListEntry{id: id} = entry} do
+      conn =
+        patch(conn, ~p"/api/reading_list_entries/#{entry}/pages",
+          reading_list_entry: %{total_pages: 250}
+        )
+
+      assert %{"id" => ^id, "total_pages" => 250, "effective_total_pages" => 250} =
+               json_response(conn, 200)["data"]
+    end
+
+    test "renders errors for a non-positive total_pages", %{conn: conn, entry: entry} do
+      conn =
+        patch(conn, ~p"/api/reading_list_entries/#{entry}/pages",
+          reading_list_entry: %{total_pages: 0}
+        )
+
+      assert json_response(conn, 422)["errors"] != %{}
+    end
+
+    test "renders 404 for a non-existent entry", %{conn: conn} do
+      assert_error_sent 404, fn ->
+        patch(conn, ~p"/api/reading_list_entries/999999/pages",
+          reading_list_entry: %{total_pages: 250}
+        )
+      end
+    end
+  end
+
   describe "delete" do
     setup [:create_entry]
 

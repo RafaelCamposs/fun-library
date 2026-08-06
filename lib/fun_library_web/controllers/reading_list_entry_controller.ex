@@ -51,6 +51,18 @@ defmodule FunLibraryWeb.ReadingListEntryController do
     end
   end
 
+  @doc """
+  Sets a per-entry page-count override (e.g. the user's edition has a
+  different page count than the catalog book).
+  """
+  def update_pages(conn, %{"id" => id, "reading_list_entry" => entry_params}) do
+    entry = Reading.get_reading_list_entry!(id)
+
+    with {:ok, %ReadingListEntry{} = entry} <- Reading.update_entry_pages(entry, entry_params) do
+      render(conn, :show, reading_list_entry: entry)
+    end
+  end
+
   defp to_id(id) when is_binary(id), do: String.to_integer(id)
   defp to_id(id) when is_integer(id), do: id
 end

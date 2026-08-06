@@ -21,6 +21,8 @@ defmodule FunLibraryWeb.Router do
       resources "/reading_sessions", SessionController, only: [:index, :create]
     end
 
+    patch "/reading_list_entries/:id/pages", ReadingListEntryController, :update_pages
+
     resources "/reading_sessions", SessionController, only: [:show, :delete]
     patch "/reading_sessions/:id/finish", SessionController, :finish
 
