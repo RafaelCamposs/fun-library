@@ -11,6 +11,7 @@ defmodule FunLibraryWeb.Router do
     pipe_through :api
 
     get "/stats", StatsController, :summary
+    get "/stats/:user_id/streak", StatsController, :streak
     get "/reading_list_entries/:id/stats", StatsController, :entry
 
     resources "/books", BookController, except: [:new, :edit]

@@ -37,6 +37,24 @@ defmodule FunLibrary.Stats do
     }
   end
 
+  @doc """
+  Returns the user's current reading streak: the number of consecutive
+  days (ending today or yesterday) on which at least one page was read.
+  """
+  def days_streak(user_id) do
+    reading_dates = reading_dates(user_id)
+    today = Date.utc_today()
+
+    start_date =
+      if MapSet.member?(reading_dates, today) do
+        today
+      else
+        Date.add(today, -1)
+      end
+
+    %{days: count_streak(reading_dates, start_date)}
+  end
+
   defp goal_progress(%Goal{} = goal) do
     books_finished =
       Repo.aggregate(
@@ -79,6 +97,28 @@ defmodule FunLibrary.Stats do
       title: entry.book.title,
       percent_complete: percent_complete(entry, list_sessions(entry.id))
     }
+  end
+
+  defp reading_dates(user_id) do
+    Repo.all(
+      from s in Session,
+        join: e in ReadingListEntry,
+        on: e.id == s.reading_list_entry_id,
+        where:
+          e.user_id == ^user_id and not is_nil(s.ended_at) and
+            s.end_page > s.start_page,
+        select: s.ended_at
+    )
+    |> Enum.map(&DateTime.to_date/1)
+    |> MapSet.new()
+  end
+
+  defp count_streak(reading_dates, date) do
+    if MapSet.member?(reading_dates, date) do
+      1 + count_streak(reading_dates, Date.add(date, -1))
+    else
+      0
+    end
   end
 
   defp list_sessions(entry_id) do

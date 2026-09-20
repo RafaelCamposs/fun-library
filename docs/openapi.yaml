@@ -1,0 +1,870 @@
+openapi: 3.0.3
+info:
+  title: FunLibrary API
+  description: >
+    Tracks a user's reading list, reading sessions, and reading goals, and
+    derives stats from them.
+  version: "1.0.0"
+
+servers:
+  - url: /api
+
+tags:
+  - name: Books
+    description: The shared, tenant-agnostic book catalog.
+  - name: Book Lookups
+    description: Read-only ISBN lookups against external catalog sources.
+  - name: Reading List Entries
+    description: A user's per-book reading list.
+  - name: Reading Sessions
+    description: Individual reading sessions logged against a reading list entry.
+  - name: Reading Goals
+    description: A user's target number of books for a period.
+  - name: Stats
+    description: Read-only stats derived from the above.
+
+paths:
+  /books:
+    get:
+      tags: [Books]
+      summary: List books
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Book"
+    post:
+      tags: [Books]
+      summary: Create a book
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [book]
+              properties:
+                book:
+                  $ref: "#/components/schemas/BookInput"
+      responses:
+        "201":
+          description: Created
+          headers:
+            location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Book"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+
+  /books/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Books]
+      summary: Get a book
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Book"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Books]
+      summary: Update a book
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [book]
+              properties:
+                book:
+                  $ref: "#/components/schemas/BookInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Book"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+    delete:
+      tags: [Books]
+      summary: Delete a book
+      responses:
+        "204":
+          description: No Content
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /book_lookups:
+    post:
+      tags: [Book Lookups]
+      summary: Look up a book by ISBN
+      description: >
+        Queries external catalog sources (Google Books, falling back to Open
+        Library) for bibliographic data. Persists nothing — this is the
+        preview step before adding a book to a reading list via
+        `POST /reading_list_entries`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isbn]
+              properties:
+                isbn:
+                  type: string
+                  example: "9780132350884"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/BookInput"
+        "422":
+          description: Invalid ISBN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          description: External catalog source unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /reading_list_entries:
+    get:
+      tags: [Reading List Entries]
+      summary: List a user's reading list entries
+      parameters:
+        - $ref: "#/components/parameters/UserIdQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReadingListEntry"
+    post:
+      tags: [Reading List Entries]
+      summary: Add a book to a user's reading list
+      description: >
+        `book` is the (possibly user-edited) preview from
+        `POST /book_lookups`; `entry` may set `status` (defaults to
+        `want_to`), `started_at`, and `finished_at` — e.g. to log a book
+        already finished.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, book]
+              properties:
+                user_id:
+                  type: integer
+                book:
+                  $ref: "#/components/schemas/BookInput"
+                entry:
+                  type: object
+                  properties:
+                    status:
+                      $ref: "#/components/schemas/EntryStatus"
+                    started_at:
+                      type: string
+                      format: date
+                    finished_at:
+                      type: string
+                      format: date
+      responses:
+        "201":
+          description: Created
+          headers:
+            location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReadingListEntry"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+
+  /reading_list_entries/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Reading List Entries]
+      summary: Get a reading list entry
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReadingListEntry"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Reading List Entries]
+      summary: Update a reading list entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reading_list_entry]
+              properties:
+                reading_list_entry:
+                  type: object
+                  properties:
+                    status:
+                      $ref: "#/components/schemas/EntryStatus"
+                    started_at:
+                      type: string
+                      format: date
+                    finished_at:
+                      type: string
+                      format: date
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReadingListEntry"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+    delete:
+      tags: [Reading List Entries]
+      summary: Delete a reading list entry
+      responses:
+        "204":
+          description: No Content
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /reading_list_entries/{id}/pages:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      tags: [Reading List Entries]
+      summary: Set a per-entry page-count override
+      description: >
+        Used when the user's edition has a different page count than the
+        catalog book. Pass `total_pages: null` to clear the override and
+        fall back to the book's page count.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reading_list_entry]
+              properties:
+                reading_list_entry:
+                  type: object
+                  properties:
+                    total_pages:
+                      type: integer
+                      nullable: true
+                      minimum: 1
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ReadingListEntry"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+
+  /reading_list_entries/{reading_list_entry_id}/reading_sessions:
+    parameters:
+      - name: reading_list_entry_id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      tags: [Reading Sessions]
+      summary: List sessions for a reading list entry
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Session"
+    post:
+      tags: [Reading Sessions]
+      summary: Start a reading session
+      description: >
+        Fails with 409 if the entry already has an open (unfinished)
+        session. On success, flips the entry to `reading` and sets
+        `started_at` if it wasn't set yet.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session]
+              properties:
+                session:
+                  type: object
+                  required: [start_page, started_at]
+                  properties:
+                    start_page:
+                      type: integer
+                      minimum: 0
+                    started_at:
+                      type: string
+                      format: date-time
+      responses:
+        "201":
+          description: Created
+          headers:
+            location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Session"
+        "409":
+          description: The entry already has an open session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+
+  /reading_sessions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Reading Sessions]
+      summary: Get a reading session
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Session"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Reading Sessions]
+      summary: Delete a reading session
+      responses:
+        "204":
+          description: No Content
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /reading_sessions/{id}/finish:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      tags: [Reading Sessions]
+      summary: Finish an open reading session
+      description: >
+        Records the ending page and time. On success, flips the entry to
+        `read` and sets `finished_at` if `end_page` reached the book's
+        `total_pages`. Fails with 422 if `end_page` exceeds the book's
+        `total_pages`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session]
+              properties:
+                session:
+                  type: object
+                  required: [end_page, ended_at]
+                  properties:
+                    end_page:
+                      type: integer
+                      minimum: 0
+                    ended_at:
+                      type: string
+                      format: date-time
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Session"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+
+  /reading_goals:
+    get:
+      tags: [Reading Goals]
+      summary: List reading goals
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Goal"
+    post:
+      tags: [Reading Goals]
+      summary: Create a reading goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal]
+              properties:
+                goal:
+                  $ref: "#/components/schemas/GoalInput"
+      responses:
+        "201":
+          description: Created
+          headers:
+            location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Goal"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+
+  /reading_goals/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Reading Goals]
+      summary: Get a reading goal
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Goal"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Reading Goals]
+      summary: Update a reading goal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [goal]
+              properties:
+                goal:
+                  $ref: "#/components/schemas/GoalInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Goal"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ChangesetError"
+    delete:
+      tags: [Reading Goals]
+      summary: Delete a reading goal
+      responses:
+        "204":
+          description: No Content
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /stats:
+    get:
+      tags: [Stats]
+      summary: Dashboard summary for a user
+      description: Goal progress for each of the user's goals, plus a currently-reading snapshot.
+      parameters:
+        - $ref: "#/components/parameters/UserIdQuery"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/StatsSummary"
+
+  /reading_list_entries/{id}/stats:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Stats]
+      summary: Per-entry stats
+      description: Percent complete, days elapsed, and a pages-read-per-day series.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/EntryStats"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    UserIdQuery:
+      name: user_id
+      in: query
+      required: true
+      schema:
+        type: integer
+
+  responses:
+    NotFound:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ChangesetError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
+                example:
+                  isbn: ["can't be blank"]
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        errors:
+          type: object
+          properties:
+            detail:
+              type: string
+
+    EntryStatus:
+      type: string
+      enum: [want_to, reading, read, stopped, unfinished]
+
+    PeriodType:
+      type: string
+      enum: [annual, monthly]
+
+    Book:
+      type: object
+      properties:
+        id:
+          type: integer
+        external_id:
+          type: string
+        external_source:
+          type: string
+        title:
+          type: string
+        authors:
+          type: array
+          items:
+            type: string
+        isbn:
+          type: string
+        cover_url:
+          type: string
+          nullable: true
+        total_pages:
+          type: integer
+          nullable: true
+        published_year:
+          type: integer
+          nullable: true
+
+    BookInput:
+      type: object
+      required: [external_id, external_source, title, isbn]
+      properties:
+        external_id:
+          type: string
+        external_source:
+          type: string
+        title:
+          type: string
+        authors:
+          type: array
+          items:
+            type: string
+        isbn:
+          type: string
+        cover_url:
+          type: string
+        total_pages:
+          type: integer
+        published_year:
+          type: integer
+
+    ReadingListEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        book_id:
+          type: integer
+        status:
+          $ref: "#/components/schemas/EntryStatus"
+        started_at:
+          type: string
+          format: date
+          nullable: true
+        finished_at:
+          type: string
+          format: date
+          nullable: true
+        total_pages:
+          type: integer
+          nullable: true
+          description: Per-entry override; falls back to the book's total_pages when unset.
+        effective_total_pages:
+          type: integer
+          nullable: true
+          description: total_pages if set, otherwise the catalog book's total_pages.
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: integer
+        reading_list_entry_id:
+          type: integer
+        start_page:
+          type: integer
+        end_page:
+          type: integer
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Goal:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        period_type:
+          $ref: "#/components/schemas/PeriodType"
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        target_books:
+          type: integer
+
+    GoalInput:
+      type: object
+      required: [user_id, period_type, period_start, period_end, target_books]
+      properties:
+        user_id:
+          type: integer
+        period_type:
+          $ref: "#/components/schemas/PeriodType"
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        target_books:
+          type: integer
+
+    StatsSummary:
+      type: object
+      properties:
+        goals:
+          type: array
+          items:
+            type: object
+            properties:
+              goal_id:
+                type: integer
+              period_type:
+                $ref: "#/components/schemas/PeriodType"
+              period_start:
+                type: string
+                format: date
+              period_end:
+                type: string
+                format: date
+              target_books:
+                type: integer
+              books_finished:
+                type: integer
+        currently_reading:
+          type: array
+          items:
+            type: object
+            properties:
+              entry_id:
+                type: integer
+              book_id:
+                type: integer
+              title:
+                type: string
+              percent_complete:
+                type: number
+                nullable: true
+
+    EntryStats:
+      type: object
+      properties:
+        percent_complete:
+          type: number
+          nullable: true
+        days_elapsed:
+          type: integer
+          nullable: true
+        pages_per_day:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              pages_read:
+                type: integer

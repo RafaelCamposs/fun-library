@@ -109,4 +109,75 @@ defmodule FunLibraryWeb.StatsControllerTest do
       assert json_response(conn, 200)["data"]["percent_complete"] == 50.0
     end
   end
+
+  describe "streak" do
+    test "counts consecutive days ending today", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{user_id: 43})
+
+      read_on(entry.id, Date.utc_today())
+      read_on(entry.id, Date.add(Date.utc_today(), -1))
+      read_on(entry.id, Date.add(Date.utc_today(), -2))
+
+      conn = get(conn, ~p"/api/stats/43/streak")
+      assert json_response(conn, 200)["data"] == %{"days" => 3}
+    end
+
+    test "still counts yesterday's streak when today has no session yet", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{user_id: 44})
+
+      read_on(entry.id, Date.add(Date.utc_today(), -1))
+      read_on(entry.id, Date.add(Date.utc_today(), -2))
+
+      conn = get(conn, ~p"/api/stats/44/streak")
+      assert json_response(conn, 200)["data"] == %{"days" => 2}
+    end
+
+    test "breaks the streak on a gap day", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{user_id: 45})
+
+      read_on(entry.id, Date.utc_today())
+      read_on(entry.id, Date.add(Date.utc_today(), -2))
+
+      conn = get(conn, ~p"/api/stats/45/streak")
+      assert json_response(conn, 200)["data"] == %{"days" => 1}
+    end
+
+    test "returns 0 when the user has no finished sessions", %{conn: conn} do
+      conn = get(conn, ~p"/api/stats/46/streak")
+      assert json_response(conn, 200)["data"] == %{"days" => 0}
+    end
+
+    test "ignores sessions where no pages were actually read", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{user_id: 47})
+
+      session =
+        session_fixture(entry.id, %{
+          "start_page" => 10,
+          "started_at" => DateTime.new!(Date.utc_today(), ~T[10:00:00])
+        })
+
+      {:ok, _} =
+        Reading.finish_session(session, %{
+          "end_page" => 10,
+          "ended_at" => DateTime.new!(Date.utc_today(), ~T[11:00:00])
+        })
+
+      conn = get(conn, ~p"/api/stats/47/streak")
+      assert json_response(conn, 200)["data"] == %{"days" => 0}
+    end
+  end
+
+  defp read_on(entry_id, date) do
+    session =
+      session_fixture(entry_id, %{
+        "start_page" => 0,
+        "started_at" => DateTime.new!(date, ~T[10:00:00])
+      })
+
+    {:ok, _} =
+      Reading.finish_session(session, %{
+        "end_page" => 10,
+        "ended_at" => DateTime.new!(date, ~T[11:00:00])
+      })
+  end
 end

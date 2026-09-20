@@ -6,4 +6,8 @@ defmodule FunLibraryWeb.StatsJSON do
   def entry(%{stats: stats}) do
     %{data: stats}
   end
+
+  def streak(%{stats: stats}) do
+    %{data: stats}
+  end
 end
