@@ -19,7 +19,7 @@ defmodule FunLibrary.Reading.ReadingListEntry do
   @doc false
   def changeset(entry, attrs) do
     entry
-    |> cast(attrs, [:user_id, :book_id, :status, :started_at, :finished_at])
+    |> cast(attrs, [:user_id, :book_id, :status, :started_at, :finished_at, :total_pages])
     |> validate_required([:user_id, :book_id, :status])
     |> foreign_key_constraint(:book_id)
     |> unique_constraint([:user_id, :book_id])

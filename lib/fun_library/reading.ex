@@ -156,7 +156,8 @@ defmodule FunLibrary.Reading do
 
   defp validate_end_page_within_total_pages(changeset, entry_id) do
     end_page = Ecto.Changeset.get_field(changeset, :end_page)
-    total_pages = get_reading_list_entry!(entry_id) |> Repo.preload(:book) |> then(& &1.book.total_pages)
+    total_pages = get_reading_list_entry!(entry_id)
+    |> then(& &1.book.total_pages)
 
     if end_page && total_pages && end_page > total_pages do
       Ecto.Changeset.add_error(changeset, :end_page, "must not exceed the book's total_pages (#{total_pages})")
@@ -202,9 +203,9 @@ defmodule FunLibrary.Reading do
   otherwise.
   """
   def maybe_finish_entry(entry_id, end_page) do
-    entry = get_reading_list_entry!(entry_id) |> Repo.preload(:book)
+    entry = get_reading_list_entry!(entry_id)
 
-    if entry.book.total_pages && end_page && end_page >= entry.book.total_pages do
+    if entry.total_pages && end_page && end_page >= entry.total_pages do
       {:ok, updated} =
         update_reading_list_entry(entry, %{status: :read, finished_at: Date.utc_today()})
 
