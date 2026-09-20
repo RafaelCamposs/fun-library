@@ -211,6 +211,21 @@ defmodule FunLibrary.ReadingTest do
       assert updated_entry.finished_at == Date.utc_today()
     end
 
+    test "finish_session/2 can finish an entry with updated total pages" do
+      entry = reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 150)
+      session = session_fixture(entry.id, %{"start_page" => 0})
+
+      assert {:ok, _session} =
+               Reading.finish_session(session, %{
+                 "end_page" => 150,
+                 "ended_at" => ~U[2026-07-18 20:00:00Z]
+               })
+
+      updated_entry = Reading.get_reading_list_entry!(entry.id)
+      assert updated_entry.status == :read
+      assert updated_entry.finished_at == Date.utc_today()
+    end
+
     test "finish_session/2 rejects end_page lower than start_page" do
       entry = reading_list_entry_fixture()
       session = session_fixture(entry.id, %{"start_page" => 50})
@@ -233,6 +248,19 @@ defmodule FunLibrary.ReadingTest do
                })
 
       assert "must not exceed the book's total_pages (100)" in errors_on(changeset).end_page
+    end
+
+    test "finish_session/2 rejects end_page greater than the book's total_pages of an updated entry" do
+      entry = reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 150)
+      session = session_fixture(entry.id, %{"start_page" => 0})
+
+      assert {:error, changeset} =
+               Reading.finish_session(session, %{
+                 "end_page" => 160,
+                 "ended_at" => ~U[2026-07-18 20:00:00Z]
+               })
+
+      assert "must not exceed the book's total_pages (150)" in errors_on(changeset).end_page
     end
 
     test "get_open_session/1 returns the open session, or nil once finished" do
