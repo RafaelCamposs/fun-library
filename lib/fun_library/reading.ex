@@ -117,22 +117,53 @@ defmodule FunLibrary.Reading do
   end
 
   @doc """
+  Returns the user's open (unfinished) session across all of their reading
+  list entries, or `nil`. A reader has at most one open session (see
+  `docs/adr/0005-one-open-session-per-reader.md`); if legacy data holds
+  several, the most recently started one is returned.
+  """
+  def get_open_session_for_user(user_id) do
+    Repo.one(
+      from s in Session,
+        join: e in ReadingListEntry,
+        on: e.id == s.reading_list_entry_id,
+        where: e.user_id == ^user_id and is_nil(s.ended_at),
+        order_by: [desc: s.started_at, desc: s.id],
+        limit: 1
+    )
+  end
+
+  @doc """
   Starts a new reading session for a reading list entry.
 
-  Fails with `{:error, :session_already_open}` if the entry already has an
-  unfinished session. On success, flips the entry to `:reading` and sets
-  `started_at` to the session's start day (in the app's timezone) if needed.
+  Fails with `{:error, {:session_already_open, open_session}}` if the
+  entry's reader already has an open session on any of their entries
+  (including this one) — one open session per reader, see
+  `docs/adr/0005-one-open-session-per-reader.md`. On success, flips the
+  entry to `:reading` and sets `started_at` to the session's start day (in
+  the app's timezone) if needed.
   """
   def start_session(entry_id, attrs) do
-    if get_open_session(entry_id) do
-      {:error, :session_already_open}
-    else
-      attrs = Map.put(attrs, "reading_list_entry_id", entry_id)
+    case open_session_for_entry_reader(entry_id) do
+      %Session{} = open_session ->
+        {:error, {:session_already_open, open_session}}
 
-      with {:ok, session} <- %Session{} |> Session.start_changeset(attrs) |> Repo.insert() do
-        mark_entry_started(entry_id, AppTime.local_date(session.started_at))
-        {:ok, session}
-      end
+      nil ->
+        attrs = Map.put(attrs, "reading_list_entry_id", entry_id)
+
+        with {:ok, session} <- %Session{} |> Session.start_changeset(attrs) |> Repo.insert() do
+          mark_entry_started(entry_id, AppTime.local_date(session.started_at))
+          {:ok, session}
+        end
+    end
+  end
+
+  # An unknown entry has no reader, so no open session: the insert then
+  # fails on the foreign key as before.
+  defp open_session_for_entry_reader(entry_id) do
+    case Repo.one(from e in ReadingListEntry, where: e.id == ^entry_id, select: e.user_id) do
+      nil -> nil
+      user_id -> get_open_session_for_user(user_id)
     end
   end
 

@@ -56,6 +56,190 @@ defmodule FunLibraryWeb.StatsControllerTest do
     end
   end
 
+  describe "summary dashboard fields" do
+    test "renders the open session and per-entry launchpad fields", %{conn: conn} do
+      entry =
+        reading_list_entry_fixture(%{
+          user_id: 51,
+          status: :reading,
+          book_id: book_fixture(%{total_pages: 100}).id
+        })
+
+      read_pages_on(entry.id, Date.add(Stats.today(), -1), 0, 70)
+
+      open =
+        session_fixture(entry.id, %{"start_page" => 70, "started_at" => local_noon(Stats.today())})
+
+      data = conn |> get(~p"/api/stats?user_id=51") |> json_response(200) |> Map.fetch!("data")
+
+      assert data["open_session"] == %{
+               "id" => open.id,
+               "entry_id" => entry.id,
+               "start_page" => 70,
+               "started_at" => DateTime.to_iso8601(open.started_at)
+             }
+
+      assert [item] = data["currently_reading"]
+
+      assert Map.take(item, ~w(last_session_at current_page pace days_left)) == %{
+               "last_session_at" => DateTime.to_iso8601(open.started_at),
+               "current_page" => 70,
+               "pace" => 10.0,
+               "days_left" => 3
+             }
+    end
+
+    test "renders null open session and null launchpad fields", %{conn: conn} do
+      reading_list_entry_fixture(%{user_id: 52, status: :reading})
+
+      data = conn |> get(~p"/api/stats?user_id=52") |> json_response(200) |> Map.fetch!("data")
+
+      assert data["open_session"] == nil
+
+      assert [
+               %{
+                 "last_session_at" => nil,
+                 "current_page" => nil,
+                 "pace" => nil,
+                 "days_left" => nil
+               }
+             ] = data["currently_reading"]
+    end
+  end
+
+  describe "activity" do
+    test "returns pages and minutes per reading day, sparse and oldest first", %{conn: conn} do
+      entry =
+        reading_list_entry_fixture(%{user_id: 53, book_id: book_fixture(%{total_pages: 500}).id})
+
+      today = Stats.today()
+
+      read_between(entry.id, local_noon(Date.add(today, -3)), 25, 0, 10)
+      read_between(entry.id, local_noon(today), 25, 10, 30)
+      # 25 + 10m20s = 35m20s on the same day rounds to 35.
+      read_between(entry.id, DateTime.add(local_noon(today), 2, :hour), 10 + 1 / 3, 30, 35)
+
+      assert activity(conn, 53) == [
+               %{
+                 "date" => Date.to_iso8601(Date.add(today, -3)),
+                 "pages_read" => 10,
+                 "minutes" => 25
+               },
+               %{"date" => Date.to_iso8601(today), "pages_read" => 25, "minutes" => 35}
+             ]
+    end
+
+    test "counts a session crossing midnight entirely on the day it ended", %{conn: conn} do
+      entry =
+        reading_list_entry_fixture(%{user_id: 54, book_id: book_fixture(%{total_pages: 500}).id})
+
+      today = Stats.today()
+      # 23:30 local yesterday to 00:30 local today.
+      late_evening = DateTime.add(local_noon(Date.add(today, -1)), 11 * 60 + 30, :minute)
+
+      read_between(entry.id, late_evening, 60, 0, 20)
+
+      assert activity(conn, 54) == [
+               %{"date" => Date.to_iso8601(today), "pages_read" => 20, "minutes" => 60}
+             ]
+    end
+
+    test "leaves out zero-page sessions, open sessions and other users", %{conn: conn} do
+      entry =
+        reading_list_entry_fixture(%{user_id: 55, book_id: book_fixture(%{total_pages: 500}).id})
+
+      other =
+        reading_list_entry_fixture(%{user_id: 56, book_id: book_fixture(%{total_pages: 500}).id})
+
+      today = Stats.today()
+
+      read_pages_on(entry.id, Date.add(today, -1), 10, 10)
+      read_pages_on(other.id, today, 0, 50)
+      session_fixture(entry.id, %{"start_page" => 10, "started_at" => local_noon(today)})
+
+      assert activity(conn, 55) == []
+    end
+
+    test "limits the window to the last N days ending today, 84 by default", %{conn: conn} do
+      entry =
+        reading_list_entry_fixture(%{user_id: 57, book_id: book_fixture(%{total_pages: 500}).id})
+
+      today = Stats.today()
+
+      for {days_ago, page} <- [{84, 0}, {83, 10}, {7, 20}, {6, 30}] do
+        read_pages_on(entry.id, Date.add(today, -days_ago), page, page + 10)
+      end
+
+      dates = fn path ->
+        conn |> get(path) |> json_response(200) |> Map.fetch!("data") |> Enum.map(& &1["date"])
+      end
+
+      assert dates.(~p"/api/stats/57/activity") ==
+               Enum.map([83, 7, 6], &Date.to_iso8601(Date.add(today, -&1)))
+
+      assert dates.(~p"/api/stats/57/activity?days=7") == [Date.to_iso8601(Date.add(today, -6))]
+    end
+
+    test "uses the same reading days as the streak", %{conn: conn} do
+      entry =
+        reading_list_entry_fixture(%{user_id: 58, book_id: book_fixture(%{total_pages: 500}).id})
+
+      today = Stats.today()
+
+      read_pages_on(entry.id, today, 0, 10)
+      read_pages_on(entry.id, Date.add(today, -1), 10, 20)
+      read_pages_on(entry.id, Date.add(today, -2), 20, 20)
+
+      assert length(activity(conn, 58)) == Stats.streak(58).current
+    end
+
+    test "rejects a days value that is not a positive integer", %{conn: conn} do
+      for days <- ["0", "-3", "abc", "7days"] do
+        conn = get(conn, ~p"/api/stats/57/activity?days=#{days}")
+        assert json_response(conn, 400) == %{"errors" => %{"detail" => "Bad Request"}}
+      end
+    end
+  end
+
+  describe "daily highlight" do
+    test "returns the day's highlight, the same on every request that day", %{conn: conn} do
+      book = book_fixture(%{title: "Oathbringer", total_pages: 500})
+      entry = reading_list_entry_fixture(%{user_id: 59, book_id: book.id})
+
+      {:ok, session} = read_pages_on(entry.id, Date.add(Stats.today(), -1), 0, 10)
+
+      {:ok, session} =
+        Reading.update_session_highlight(session, %{"highlight" => "Journey before destination."})
+
+      expected = %{
+        "session_id" => session.id,
+        "entry_id" => entry.id,
+        "book_id" => book.id,
+        "book_title" => "Oathbringer",
+        "highlight" => "Journey before destination."
+      }
+
+      assert conn |> get(~p"/api/stats/59/daily_highlight") |> json_response(200) ==
+               %{"data" => expected}
+
+      assert conn |> get(~p"/api/stats/59/daily_highlight") |> json_response(200) ==
+               %{"data" => expected}
+    end
+
+    test "returns null data when no highlight qualifies", %{conn: conn} do
+      entry =
+        reading_list_entry_fixture(%{user_id: 60, book_id: book_fixture(%{total_pages: 500}).id})
+
+      {:ok, session} = read_pages_on(entry.id, Date.add(Stats.today(), -1), 0, 10)
+
+      {:ok, _} =
+        Reading.update_session_highlight(session, %{"highlight" => String.duplicate("a", 121)})
+
+      assert conn |> get(~p"/api/stats/60/daily_highlight") |> json_response(200) ==
+               %{"data" => nil}
+    end
+  end
+
   describe "entry stats" do
     test "returns percent complete, days elapsed, and pages per day", %{conn: conn} do
       entry =
@@ -324,6 +508,24 @@ defmodule FunLibraryWeb.StatsControllerTest do
         "end_page" => end_page,
         "ended_at" => DateTime.add(local_noon(date), 1, :hour)
       })
+  end
+
+  defp read_between(entry_id, started_at, minutes, start_page, end_page) do
+    session =
+      session_fixture(entry_id, %{"start_page" => start_page, "started_at" => started_at})
+
+    {:ok, _} =
+      Reading.finish_session(session, %{
+        "end_page" => end_page,
+        "ended_at" => DateTime.add(started_at, round(minutes * 60), :second)
+      })
+  end
+
+  defp activity(conn, user_id) do
+    conn
+    |> get(~p"/api/stats/#{user_id}/activity")
+    |> json_response(200)
+    |> Map.fetch!("data")
   end
 
   defp entry_stats(conn, entry) do

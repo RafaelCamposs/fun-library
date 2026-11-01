@@ -38,6 +38,26 @@ The second step of adding a book: given (possibly user-edited) attributes from a
 A short passage or reflection, up to one paragraph, a reader captures from a book against a finished `Session`. Optional, and unlike the rest of a finished session's data, editable afterward through its own route.
 _Avoid_: Note, comment, log entry
 
+**Daily highlight**:
+One session highlight of at most 120 characters, chosen at random once per calendar day in the app's timezone, cycling through every eligible highlight before any repeats. There is none on a day with no eligible highlights.
+_Avoid_: Quote of the day, featured highlight
+
+**Open session**:
+A session that has started but not yet been finished. A reader has at most one at a time, across all reading list entries (see ADR 0005).
+_Avoid_: Active session, in-progress session
+
+**Current page** (of a reading list entry):
+The end page of the entry's latest session, or its start page if that session is still open. An entry with no sessions has no current page.
+_Avoid_: Bookmark, last page
+
+**Pace** (of a reading list entry):
+Pages per day, averaged over the last 7 days; when that is zero, pages read so far divided by days since the start date. No pace when neither yields a positive number.
+_Avoid_: Speed, rate
+
+**Days left** (of a reading list entry):
+Remaining pages divided by pace, rounded up. Undefined without a page count or a pace.
+_Avoid_: ETA, finish estimate
+
 **Reading day**:
 A calendar day, in the app's timezone, on which at least one finished session ended having advanced pages (end page after start page). Reading several books on the same day still makes one reading day.
 _Avoid_: Active day, streak day

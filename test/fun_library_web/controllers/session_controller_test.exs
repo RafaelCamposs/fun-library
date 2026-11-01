@@ -60,14 +60,43 @@ defmodule FunLibraryWeb.SessionControllerTest do
 
     test "renders conflict when a session is already open", %{conn: conn} do
       entry = reading_list_entry_fixture()
-      session_fixture(entry.id)
+      open_session = session_fixture(entry.id)
 
       conn =
         post(conn, ~p"/api/reading_list_entries/#{entry}/reading_sessions",
           session: @create_attrs
         )
 
-      assert json_response(conn, 409)["errors"] != %{}
+      assert %{"errors" => %{"detail" => "Conflict"}, "open_session" => %{"id" => id}} =
+               json_response(conn, 409)
+
+      assert id == open_session.id
+    end
+
+    test "renders conflict identifying the open session on another entry", %{conn: conn} do
+      open_entry = reading_list_entry_fixture(user_id: 7)
+      other_entry = reading_list_entry_fixture(user_id: 7)
+
+      open_session =
+        session_fixture(open_entry.id, %{
+          "start_page" => 120,
+          "started_at" => ~U[2026-11-01 22:00:00Z]
+        })
+
+      conn =
+        post(conn, ~p"/api/reading_list_entries/#{other_entry}/reading_sessions",
+          session: @create_attrs
+        )
+
+      assert json_response(conn, 409) == %{
+               "errors" => %{"detail" => "Conflict"},
+               "open_session" => %{
+                 "id" => open_session.id,
+                 "entry_id" => open_entry.id,
+                 "start_page" => 120,
+                 "started_at" => "2026-11-01T22:00:00Z"
+               }
+             }
     end
   end
 
