@@ -11,7 +11,7 @@ We're adding an optional `highlight` field to `reading_sessions`: a short passag
   - Only works on a finished session (`ended_at` present); called on an open session it errors, since the concept doesn't exist before finish.
   - Clearing it back to `nil` is allowed — there's no reason to forbid removal once editing is allowed.
 - **Capped at 500 characters** (`validate_length(:highlight, max: 500)`) — roughly one paragraph, enough for a highlighted passage plus a short comment, not a chapter summary or open-ended journaling. Going over the limit is a validation error, not silent truncation: truncating would silently drop part of something the reader cared enough to write.
-- **Surfaces only in the session JSON** (`SessionJSON.data/1`). No appearance in stats or charts — it's free text, not a number. An aggregated "all highlights for this book" view is explicitly out of scope here; it's a separate, later feature that doesn't need anything beyond what this ADR sets up.
+- **Surfaces only in the session JSON** (`SessionJSON.data/1`). No appearance in stats or charts — it's free text, not a number. An aggregated "all highlights for this book" view is explicitly out of scope here; it's a separate, later feature that doesn't need anything beyond what this ADR sets up. *Amended by the dashboard revamp:* `GET /api/stats/:user_id/daily_highlight` now surfaces one short highlight per day; it is still never aggregated into numbers or charts.
 
 ## Considered options
 

@@ -12,6 +12,8 @@ defmodule FunLibraryWeb.Router do
 
     get "/stats", StatsController, :summary
     get "/stats/:user_id/streak", StatsController, :streak
+    get "/stats/:user_id/activity", StatsController, :activity
+    get "/stats/:user_id/daily_highlight", StatsController, :daily_highlight
     get "/reading_list_entries/:id/stats", StatsController, :entry
 
     resources "/books", BookController, except: [:new, :edit]

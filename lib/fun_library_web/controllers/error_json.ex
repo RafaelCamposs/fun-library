@@ -15,6 +15,15 @@ defmodule FunLibraryWeb.ErrorJSON do
   # By default, Phoenix returns the status message from
   # the template name. For example, "404.json" becomes
   # "Not Found".
+  # A refused session start identifies the reader's open session, so the
+  # client can say which book to finish first (ADR 0005).
+  def render("409.json", %{open_session: open_session}) do
+    %{
+      errors: %{detail: "Conflict"},
+      open_session: FunLibraryWeb.SessionJSON.open_session(open_session)
+    }
+  end
+
   def render(template, _assigns) do
     %{errors: %{detail: Phoenix.Controller.status_message_from_template(template)}}
   end

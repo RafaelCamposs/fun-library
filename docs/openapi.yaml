@@ -364,9 +364,11 @@ paths:
       tags: [Reading Sessions]
       summary: Start a reading session
       description: >
-        Fails with 409 if the entry already has an open (unfinished)
-        session. On success, flips the entry to `reading` and sets
-        `started_at` if it wasn't set yet.
+        Fails with 409 if the entry's reader already has an open (unfinished)
+        session on any of their entries, this one included (one open session
+        per reader, ADR 0005); the 409 body identifies that session. On
+        success, flips the entry to `reading` and sets `started_at` if it
+        wasn't set yet.
       requestBody:
         required: true
         content:
@@ -400,11 +402,21 @@ paths:
                   data:
                     $ref: "#/components/schemas/Session"
         "409":
-          description: The entry already has an open session
+          description: The reader already has an open session (on any entry)
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                type: object
+                required: [errors, open_session]
+                properties:
+                  errors:
+                    type: object
+                    properties:
+                      detail:
+                        type: string
+                        example: Conflict
+                  open_session:
+                    $ref: "#/components/schemas/OpenSession"
         "422":
           $ref: "#/components/responses/ChangesetError"
 
@@ -583,7 +595,10 @@ paths:
     get:
       tags: [Stats]
       summary: Dashboard summary for a user
-      description: Goal progress for each of the user's goals, plus a currently-reading snapshot.
+      description: >
+        Goal progress for each of the user's goals, the reader's open session
+        (or null), and a currently-reading snapshot with each entry's last
+        session time, current page, pace and days left.
       parameters:
         - $ref: "#/components/parameters/UserIdQuery"
       responses:
@@ -642,6 +657,70 @@ paths:
                 properties:
                   data:
                     $ref: "#/components/schemas/Streak"
+
+  /stats/{user_id}/activity:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Stats]
+      summary: Reading activity per day for a user
+      description: >
+        Pages read and minutes read per reading day over the last `days` days
+        ending today, oldest first, sparse (only days with reading). Uses the
+        reading-day rule shared with the streak: a finished session that
+        advanced pages counts entirely on the app-timezone day its `ended_at`
+        falls on. `minutes` is the summed duration (`ended_at - started_at`)
+        of that day's counted sessions, rounded to whole minutes.
+      parameters:
+        - name: days
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 84
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ActivityDay"
+        "400":
+          description: "`days` is not a positive integer"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /stats/{user_id}/daily_highlight:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Stats]
+      summary: Daily highlight for a user
+      description: >
+        One session highlight of at most 120 characters, fixed for the
+        calendar day in the app's timezone and cycling through every eligible
+        highlight before any repeats. `data` is null when no highlight
+        qualifies.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/DailyHighlight"
+                    nullable: true
 
 components:
   parameters:
@@ -838,9 +917,53 @@ components:
         target_books:
           type: integer
 
+    OpenSession:
+      type: object
+      properties:
+        id:
+          type: integer
+        entry_id:
+          type: integer
+        start_page:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+
+    ActivityDay:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        pages_read:
+          type: integer
+        minutes:
+          type: integer
+
+    DailyHighlight:
+      type: object
+      properties:
+        session_id:
+          type: integer
+        entry_id:
+          type: integer
+        book_id:
+          type: integer
+        book_title:
+          type: string
+        highlight:
+          type: string
+          maxLength: 120
+
     StatsSummary:
       type: object
       properties:
+        open_session:
+          allOf:
+            - $ref: "#/components/schemas/OpenSession"
+          nullable: true
+          description: The reader's open session on any entry (at most one, ADR 0005).
         goals:
           type: array
           items:
@@ -874,6 +997,31 @@ components:
               percent_complete:
                 type: number
                 nullable: true
+              last_session_at:
+                type: string
+                format: date-time
+                nullable: true
+                description: started_at of the entry's latest session; null without sessions.
+              current_page:
+                type: integer
+                nullable: true
+                description: >
+                  End page of the latest session, or its start page if still
+                  open; null without sessions.
+              pace:
+                type: number
+                nullable: true
+                description: >
+                  Pages per day, 1 decimal: pages over the last 7 days (today
+                  included) / 7; when zero, pages read so far / max(1, days
+                  since the start date); null when neither is positive.
+              days_left:
+                type: integer
+                nullable: true
+                description: >
+                  ceil(remaining pages / pace), using the entry's total_pages
+                  override or the book's; null without a page count, without
+                  a pace, or when nothing remains.
 
     Streak:
       type: object

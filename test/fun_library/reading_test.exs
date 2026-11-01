@@ -193,13 +193,68 @@ defmodule FunLibrary.ReadingTest do
 
     test "start_session/2 rejects a second open session for the same entry" do
       entry = reading_list_entry_fixture()
-      session_fixture(entry.id)
+      %Session{id: open_id} = session_fixture(entry.id)
 
-      assert {:error, :session_already_open} =
+      assert {:error, {:session_already_open, %Session{id: ^open_id}}} =
                Reading.start_session(entry.id, %{
                  "start_page" => 10,
                  "started_at" => ~U[2026-07-19 10:00:00Z]
                })
+    end
+
+    test "start_session/2 rejects a session while the reader has one open on another entry" do
+      open_entry = reading_list_entry_fixture(user_id: 7)
+      other_entry = reading_list_entry_fixture(user_id: 7)
+      %Session{id: open_id} = session_fixture(open_entry.id)
+
+      assert {:error, {:session_already_open, %Session{id: ^open_id}}} =
+               Reading.start_session(other_entry.id, %{
+                 "start_page" => 0,
+                 "started_at" => ~U[2026-07-19 10:00:00Z]
+               })
+
+      assert Reading.list_sessions_for_entry(other_entry.id) == []
+      assert Reading.get_reading_list_entry!(other_entry.id).status == :want_to
+    end
+
+    test "start_session/2 allows a session once the reader's open session is finished" do
+      open_entry = reading_list_entry_fixture(user_id: 7)
+      other_entry = reading_list_entry_fixture(user_id: 7)
+      session = session_fixture(open_entry.id)
+
+      {:ok, _} =
+        Reading.finish_session(session, %{
+          "end_page" => 10,
+          "ended_at" => ~U[2026-07-18 19:30:00Z]
+        })
+
+      assert {:ok, %Session{}} =
+               Reading.start_session(other_entry.id, %{
+                 "start_page" => 0,
+                 "started_at" => ~U[2026-07-19 10:00:00Z]
+               })
+    end
+
+    test "start_session/2 ignores open sessions of other readers" do
+      session_fixture(reading_list_entry_fixture(user_id: 7).id)
+      entry = reading_list_entry_fixture(user_id: 8)
+
+      assert {:ok, %Session{}} =
+               Reading.start_session(entry.id, %{
+                 "start_page" => 0,
+                 "started_at" => ~U[2026-07-19 10:00:00Z]
+               })
+    end
+
+    test "get_open_session_for_user/1 returns the reader's open session across entries" do
+      entry = reading_list_entry_fixture(user_id: 7)
+      reading_list_entry_fixture(user_id: 7)
+      assert Reading.get_open_session_for_user(7) == nil
+
+      %Session{id: open_id} = session_fixture(entry.id)
+
+      assert %Session{id: ^open_id} = Reading.get_open_session_for_user(7)
+      assert Reading.get_open_session_for_user(8) == nil
     end
 
     test "start_session/2 with invalid data returns error changeset" do

@@ -22,11 +22,18 @@ defmodule FunLibraryWeb.FallbackController do
     |> render(:"404")
   end
 
-  def call(conn, {:error, :session_already_open}) do
+  def call(conn, {:error, :bad_request}) do
+    conn
+    |> put_status(:bad_request)
+    |> put_view(json: FunLibraryWeb.ErrorJSON)
+    |> render(:"400")
+  end
+
+  def call(conn, {:error, {:session_already_open, open_session}}) do
     conn
     |> put_status(:conflict)
     |> put_view(json: FunLibraryWeb.ErrorJSON)
-    |> render(:"409")
+    |> render(:"409", open_session: open_session)
   end
 
   def call(conn, {:error, :session_not_finished}) do
