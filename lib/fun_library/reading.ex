@@ -160,7 +160,11 @@ defmodule FunLibrary.Reading do
     total_pages = get_total_pages(entry)
 
     if end_page && total_pages && end_page > total_pages do
-      Ecto.Changeset.add_error(changeset, :end_page, "must not exceed the book's total_pages (#{total_pages})")
+      Ecto.Changeset.add_error(
+        changeset,
+        :end_page,
+        "must not exceed the book's total_pages (#{total_pages})"
+      )
     else
       changeset
     end

@@ -11,6 +11,10 @@ config :fun_library,
   ecto_repos: [FunLibrary.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Fixed UTC offset that defines the app's calendar day for stats such as
+# reading days and streaks (America/Sao_Paulo, no DST since 2019).
+config :fun_library, :utc_offset_minutes, -180
+
 # Configure the endpoint
 config :fun_library, FunLibraryWeb.Endpoint,
   url: [host: "localhost"],

@@ -617,6 +617,27 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /stats/{user_id}/streak:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    get:
+      tags: [Stats]
+      summary: Reading streak for a user
+      description: >
+        Current streak (consecutive reading days ending today, or yesterday if
+        today has no reading yet) and streak record (longest run of consecutive
+        reading days ever). Days are calendar days in the app's timezone.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Streak"
+
 components:
   parameters:
     Id:
@@ -848,6 +869,14 @@ components:
               percent_complete:
                 type: number
                 nullable: true
+
+    Streak:
+      type: object
+      properties:
+        current:
+          type: integer
+        record:
+          type: integer
 
     EntryStats:
       type: object

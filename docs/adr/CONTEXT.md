@@ -26,6 +26,18 @@ _Avoid_: Search, fetch (as a domain term — "fetch" is fine as implementation d
 **Confirm** (adding to the reading list):
 The second step of adding a book: given (possibly user-edited) attributes from a prior lookup, find-or-create the `Book` and create a `ReadingListEntry` for the user. This is the only step that persists data.
 
+**Reading day**:
+A calendar day, in the app's timezone, on which at least one finished session ended having advanced pages (end page after start page). Reading several books on the same day still makes one reading day.
+_Avoid_: Active day, streak day
+
+**Current streak**:
+The number of consecutive reading days ending today, or ending yesterday if today has no reading yet. It is user-level, not per-book.
+_Avoid_: Days streak
+
+**Streak record**:
+The longest run of consecutive reading days in the user's whole reading history. It is always derived from the sessions as they exist now, so editing or deleting sessions can lower it.
+_Avoid_: Best streak, high score, max streak
+
 ## Reading (context)
 
 Owns per-user reading state and progress: `ReadingListEntry`, `Session`, `Goal`. A `Session` and a `Goal` both reference a `ReadingListEntry`, not a `Book` directly — progress and goals belong to a specific reader's relationship with a book, not to the shared catalog entry.

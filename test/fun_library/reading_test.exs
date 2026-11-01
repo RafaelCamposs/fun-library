@@ -197,7 +197,9 @@ defmodule FunLibrary.ReadingTest do
     end
 
     test "finish_session/2 marks the entry read when end_page reaches total_pages" do
-      entry = reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 100)
+      entry =
+        reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 100)
+
       session = session_fixture(entry.id, %{"start_page" => 0})
 
       assert {:ok, _session} =
@@ -212,7 +214,9 @@ defmodule FunLibrary.ReadingTest do
     end
 
     test "finish_session/2 can finish an entry with updated total pages" do
-      entry = reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 150)
+      entry =
+        reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 150)
+
       session = session_fixture(entry.id, %{"start_page" => 0})
 
       assert {:ok, _session} =
@@ -251,7 +255,9 @@ defmodule FunLibrary.ReadingTest do
     end
 
     test "finish_session/2 rejects end_page greater than the book's total_pages of an updated entry" do
-      entry = reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 150)
+      entry =
+        reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 150)
+
       session = session_fixture(entry.id, %{"start_page" => 0})
 
       assert {:error, changeset} =

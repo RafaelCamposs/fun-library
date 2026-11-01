@@ -14,6 +14,6 @@ defmodule FunLibraryWeb.StatsController do
   end
 
   def streak(conn, %{"user_id" => user_id}) do
-    render(conn, :streak, stats: Stats.days_streak(String.to_integer(user_id)))
+    render(conn, :streak, stats: Stats.streak(String.to_integer(user_id)))
   end
 end
