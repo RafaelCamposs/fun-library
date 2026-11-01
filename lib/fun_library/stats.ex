@@ -22,7 +22,8 @@ defmodule FunLibrary.Stats do
 
   @doc """
   Returns per-entry stats: percent complete, days elapsed, and a
-  pages-read-per-day series (bucketed by the day each session ended).
+  pages-read-per-day series (bucketed by the day each session ended, in
+  the app's timezone).
 
   Raises `Ecto.NoResultsError` if the reading list entry does not exist.
   """
@@ -38,12 +39,13 @@ defmodule FunLibrary.Stats do
   end
 
   @doc """
-  Returns the user's current reading streak: the number of consecutive
-  days (ending today or yesterday) on which at least one page was read.
+  Returns the user's current streak (consecutive reading days ending today,
+  or yesterday if today has no reading yet) and their streak record (the
+  longest run of consecutive reading days in their whole history).
   """
-  def days_streak(user_id) do
+  def streak(user_id) do
     reading_dates = reading_dates(user_id)
-    today = Date.utc_today()
+    today = today()
 
     start_date =
       if MapSet.member?(reading_dates, today) do
@@ -52,7 +54,21 @@ defmodule FunLibrary.Stats do
         Date.add(today, -1)
       end
 
-    %{days: count_streak(reading_dates, start_date)}
+    %{current: count_streak(reading_dates, start_date), record: longest_run(reading_dates)}
+  end
+
+  @doc """
+  Returns today's date in the app's timezone (see `:utc_offset_minutes`).
+  """
+  def today, do: local_date(DateTime.utc_now())
+
+  @doc """
+  Returns the calendar date of a UTC datetime in the app's timezone.
+  """
+  def local_date(%DateTime{} = datetime) do
+    datetime
+    |> DateTime.add(Application.fetch_env!(:fun_library, :utc_offset_minutes), :minute)
+    |> DateTime.to_date()
   end
 
   defp goal_progress(%Goal{} = goal) do
@@ -109,7 +125,7 @@ defmodule FunLibrary.Stats do
             s.end_page > s.start_page,
         select: s.ended_at
     )
-    |> Enum.map(&DateTime.to_date/1)
+    |> Enum.map(&local_date/1)
     |> MapSet.new()
   end
 
@@ -119,6 +135,27 @@ defmodule FunLibrary.Stats do
     else
       0
     end
+  end
+
+  defp longest_run(reading_dates) do
+    reading_dates
+    |> Enum.sort(Date)
+    |> Enum.chunk_while(
+      [],
+      fn
+        date, [prev | _] = run ->
+          if Date.diff(date, prev) == 1, do: {:cont, [date | run]}, else: {:cont, run, [date]}
+
+        date, [] ->
+          {:cont, [date]}
+      end,
+      fn
+        [] -> {:cont, []}
+        run -> {:cont, run, []}
+      end
+    )
+    |> Enum.map(&length/1)
+    |> Enum.max(fn -> 0 end)
   end
 
   defp list_sessions(entry_id) do
@@ -152,13 +189,13 @@ defmodule FunLibrary.Stats do
   defp days_elapsed(%ReadingListEntry{started_at: nil}), do: nil
 
   defp days_elapsed(%ReadingListEntry{started_at: started_at, finished_at: finished_at}) do
-    Date.diff(finished_at || Date.utc_today(), started_at)
+    Date.diff(finished_at || today(), started_at)
   end
 
   defp pages_per_day(sessions) do
     sessions
     |> Enum.filter(&(&1.ended_at && &1.end_page))
-    |> Enum.group_by(&DateTime.to_date(&1.ended_at), &(&1.end_page - &1.start_page))
+    |> Enum.group_by(&local_date(&1.ended_at), &(&1.end_page - &1.start_page))
     |> Enum.map(fn {date, pages_read} -> %{date: date, pages_read: Enum.sum(pages_read)} end)
     |> Enum.sort_by(& &1.date, Date)
   end

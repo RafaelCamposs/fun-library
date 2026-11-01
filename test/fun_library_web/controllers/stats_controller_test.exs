@@ -3,7 +3,7 @@ defmodule FunLibraryWeb.StatsControllerTest do
 
   import FunLibrary.LibraryFixtures
   import FunLibrary.ReadingFixtures
-  alias FunLibrary.Reading
+  alias FunLibrary.{Reading, Stats}
 
   setup %{conn: conn} do
     {:ok, conn: put_req_header(conn, "accept", "application/json")}
@@ -114,37 +114,37 @@ defmodule FunLibraryWeb.StatsControllerTest do
     test "counts consecutive days ending today", %{conn: conn} do
       entry = reading_list_entry_fixture(%{user_id: 43})
 
-      read_on(entry.id, Date.utc_today())
-      read_on(entry.id, Date.add(Date.utc_today(), -1))
-      read_on(entry.id, Date.add(Date.utc_today(), -2))
+      read_on(entry.id, Stats.today())
+      read_on(entry.id, Date.add(Stats.today(), -1))
+      read_on(entry.id, Date.add(Stats.today(), -2))
 
       conn = get(conn, ~p"/api/stats/43/streak")
-      assert json_response(conn, 200)["data"] == %{"days" => 3}
+      assert json_response(conn, 200)["data"] == %{"current" => 3, "record" => 3}
     end
 
     test "still counts yesterday's streak when today has no session yet", %{conn: conn} do
       entry = reading_list_entry_fixture(%{user_id: 44})
 
-      read_on(entry.id, Date.add(Date.utc_today(), -1))
-      read_on(entry.id, Date.add(Date.utc_today(), -2))
+      read_on(entry.id, Date.add(Stats.today(), -1))
+      read_on(entry.id, Date.add(Stats.today(), -2))
 
       conn = get(conn, ~p"/api/stats/44/streak")
-      assert json_response(conn, 200)["data"] == %{"days" => 2}
+      assert json_response(conn, 200)["data"] == %{"current" => 2, "record" => 2}
     end
 
     test "breaks the streak on a gap day", %{conn: conn} do
       entry = reading_list_entry_fixture(%{user_id: 45})
 
-      read_on(entry.id, Date.utc_today())
-      read_on(entry.id, Date.add(Date.utc_today(), -2))
+      read_on(entry.id, Stats.today())
+      read_on(entry.id, Date.add(Stats.today(), -2))
 
       conn = get(conn, ~p"/api/stats/45/streak")
-      assert json_response(conn, 200)["data"] == %{"days" => 1}
+      assert json_response(conn, 200)["data"] == %{"current" => 1, "record" => 1}
     end
 
     test "returns 0 when the user has no finished sessions", %{conn: conn} do
       conn = get(conn, ~p"/api/stats/46/streak")
-      assert json_response(conn, 200)["data"] == %{"days" => 0}
+      assert json_response(conn, 200)["data"] == %{"current" => 0, "record" => 0}
     end
 
     test "ignores sessions where no pages were actually read", %{conn: conn} do
@@ -153,31 +153,72 @@ defmodule FunLibraryWeb.StatsControllerTest do
       session =
         session_fixture(entry.id, %{
           "start_page" => 10,
-          "started_at" => DateTime.new!(Date.utc_today(), ~T[10:00:00])
+          "started_at" => local_noon(Stats.today())
         })
 
       {:ok, _} =
         Reading.finish_session(session, %{
           "end_page" => 10,
-          "ended_at" => DateTime.new!(Date.utc_today(), ~T[11:00:00])
+          "ended_at" => DateTime.add(local_noon(Stats.today()), 1, :hour)
         })
 
       conn = get(conn, ~p"/api/stats/47/streak")
-      assert json_response(conn, 200)["data"] == %{"days" => 0}
+      assert json_response(conn, 200)["data"] == %{"current" => 0, "record" => 0}
+    end
+
+    test "record is the longest past run when it beats the current streak", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{user_id: 48})
+
+      for days_ago <- [10, 11, 12, 13], do: read_on(entry.id, Date.add(Stats.today(), -days_ago))
+      for days_ago <- [0, 1], do: read_on(entry.id, Date.add(Stats.today(), -days_ago))
+
+      conn = get(conn, ~p"/api/stats/48/streak")
+      assert json_response(conn, 200)["data"] == %{"current" => 2, "record" => 4}
+    end
+
+    test "record is kept when the current streak is broken", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{user_id: 49})
+
+      for days_ago <- [5, 6, 7], do: read_on(entry.id, Date.add(Stats.today(), -days_ago))
+
+      conn = get(conn, ~p"/api/stats/49/streak")
+      assert json_response(conn, 200)["data"] == %{"current" => 0, "record" => 3}
+    end
+
+    test "attributes a late-evening session to the local day, not the UTC day", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{user_id: 50})
+
+      # 22:30 local yesterday is already today in UTC; it must count as yesterday.
+      yesterday = Date.add(Stats.today(), -1)
+      late_evening = DateTime.add(local_noon(yesterday), 10 * 60 + 30, :minute)
+
+      session =
+        session_fixture(entry.id, %{"start_page" => 0, "started_at" => late_evening})
+
+      {:ok, _} =
+        Reading.finish_session(session, %{"end_page" => 10, "ended_at" => late_evening})
+
+      read_on(entry.id, Date.add(Stats.today(), -2))
+
+      conn = get(conn, ~p"/api/stats/50/streak")
+      assert json_response(conn, 200)["data"] == %{"current" => 2, "record" => 2}
     end
   end
 
   defp read_on(entry_id, date) do
     session =
-      session_fixture(entry_id, %{
-        "start_page" => 0,
-        "started_at" => DateTime.new!(date, ~T[10:00:00])
-      })
+      session_fixture(entry_id, %{"start_page" => 0, "started_at" => local_noon(date)})
 
     {:ok, _} =
       Reading.finish_session(session, %{
         "end_page" => 10,
-        "ended_at" => DateTime.new!(date, ~T[11:00:00])
+        "ended_at" => DateTime.add(local_noon(date), 1, :hour)
       })
+  end
+
+  # Noon on `date` in the app's timezone, expressed as a UTC datetime.
+  defp local_noon(date) do
+    DateTime.new!(date, ~T[12:00:00])
+    |> DateTime.add(-Application.fetch_env!(:fun_library, :utc_offset_minutes), :minute)
   end
 end
