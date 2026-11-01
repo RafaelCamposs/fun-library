@@ -466,17 +466,25 @@ defmodule FunLibrary.ReadingTest do
 
     import FunLibrary.ReadingFixtures
 
-    @invalid_attrs %{
-      user_id: nil,
-      period_type: nil,
-      period_start: nil,
-      period_end: nil,
-      target_books: nil
-    }
+    @today ~D[2026-11-15]
 
-    test "list_reading_goals/0 returns all reading_goals" do
-      goal = goal_fixture()
-      assert Reading.list_reading_goals() == [goal]
+    test "list_reading_goals/2 lists only the user's goals: current, upcoming, closed, newest period first" do
+      dec_2025 = insert_goal!(period_type: :monthly, period_start: ~D[2025-12-01])
+      oct_2026 = insert_goal!(period_type: :monthly, period_start: ~D[2026-10-01])
+      nov_2026 = insert_goal!(period_type: :monthly, period_start: ~D[2026-11-01])
+      year_2027 = insert_goal!(period_type: :annual, period_start: ~D[2027-01-01])
+      year_2025 = insert_goal!(period_type: :annual, period_start: ~D[2025-01-01])
+      dec_2026 = insert_goal!(period_type: :monthly, period_start: ~D[2026-12-01])
+      year_2026 = insert_goal!(period_type: :annual, period_start: ~D[2026-01-01])
+      insert_goal!(user_id: 7, period_type: :annual, period_start: ~D[2026-01-01])
+
+      assert Reading.list_reading_goals(42, @today) |> Enum.map(& &1.id) ==
+               Enum.map(
+                 [year_2026, nov_2026, year_2027, dec_2026, oct_2026, year_2025, dec_2025],
+                 & &1.id
+               )
+
+      assert Reading.list_reading_goals(8, @today) == []
     end
 
     test "get_goal!/1 returns the goal with given id" do
@@ -484,61 +492,162 @@ defmodule FunLibrary.ReadingTest do
       assert Reading.get_goal!(goal.id) == goal
     end
 
-    test "create_goal/1 with valid data creates a goal" do
-      valid_attrs = %{
-        user_id: 42,
-        period_type: :annual,
-        period_start: ~D[2026-07-18],
-        period_end: ~D[2026-07-18],
-        target_books: 42
-      }
+    test "create_goal/3 creates goals for current and upcoming periods" do
+      assert {:ok, %Goal{} = goal} =
+               Reading.create_goal(
+                 42,
+                 %{period_type: :monthly, period_start: ~D[2026-11-01], target_books: 2},
+                 @today
+               )
 
-      assert {:ok, %Goal{} = goal} = Reading.create_goal(valid_attrs)
-      assert goal.user_id == 42
-      assert goal.period_type == :annual
-      assert goal.period_start == ~D[2026-07-18]
-      assert goal.period_end == ~D[2026-07-18]
-      assert goal.target_books == 42
+      assert %{user_id: 42, period_type: :monthly, period_start: ~D[2026-11-01]} = goal
+      assert goal.target_books == 2
+
+      assert {:ok, %Goal{}} =
+               Reading.create_goal(
+                 42,
+                 %{
+                   "period_type" => "annual",
+                   "period_start" => "2027-01-01",
+                   "target_books" => 9
+                 },
+                 @today
+               )
     end
 
-    test "create_goal/1 with invalid data returns error changeset" do
-      assert {:error, %Ecto.Changeset{}} = Reading.create_goal(@invalid_attrs)
+    test "create_goal/3 accepts a period on its last day" do
+      assert {:ok, %Goal{}} =
+               Reading.create_goal(
+                 42,
+                 %{period_type: :monthly, period_start: ~D[2026-10-01], target_books: 2},
+                 ~D[2026-10-31]
+               )
     end
 
-    test "update_goal/2 with valid data updates the goal" do
-      goal = goal_fixture()
-
-      update_attrs = %{
-        user_id: 43,
-        period_type: :monthly,
-        period_start: ~D[2026-07-19],
-        period_end: ~D[2026-07-19],
-        target_books: 43
-      }
-
-      assert {:ok, %Goal{} = goal} = Reading.update_goal(goal, update_attrs)
-      assert goal.user_id == 43
-      assert goal.period_type == :monthly
-      assert goal.period_start == ~D[2026-07-19]
-      assert goal.period_end == ~D[2026-07-19]
-      assert goal.target_books == 43
+    test "create_goal/3 sets user_id programmatically, never from attrs" do
+      assert {:ok, %Goal{user_id: 42}} =
+               Reading.create_goal(
+                 42,
+                 %{
+                   user_id: 7,
+                   period_type: :annual,
+                   period_start: ~D[2026-01-01],
+                   target_books: 1
+                 },
+                 @today
+               )
     end
 
-    test "update_goal/2 with invalid data returns error changeset" do
-      goal = goal_fixture()
-      assert {:error, %Ecto.Changeset{}} = Reading.update_goal(goal, @invalid_attrs)
+    test "create_goal/3 requires period_start to be the first day of the period" do
+      for {type, start} <- [
+            {:annual, ~D[2027-02-01]},
+            {:annual, ~D[2027-01-15]},
+            {:monthly, ~D[2026-12-15]}
+          ] do
+        assert {:error, changeset} =
+                 Reading.create_goal(
+                   42,
+                   %{period_type: type, period_start: start, target_books: 1},
+                   @today
+                 )
+
+        assert %{period_start: [message]} = errors_on(changeset)
+        assert message =~ "must be the first day of a"
+      end
+    end
+
+    test "create_goal/3 rejects a period that has ended" do
+      for {type, start} <- [{:monthly, ~D[2026-10-01]}, {:annual, ~D[2025-01-01]}] do
+        assert {:error, changeset} =
+                 Reading.create_goal(
+                   42,
+                   %{period_type: type, period_start: start, target_books: 1},
+                   @today
+                 )
+
+        assert %{period_start: ["must be a current or upcoming period"]} = errors_on(changeset)
+      end
+    end
+
+    test "create_goal/3 requires a positive target and all fields" do
+      assert {:error, changeset} =
+               Reading.create_goal(
+                 42,
+                 %{period_type: :annual, period_start: ~D[2026-01-01], target_books: 0},
+                 @today
+               )
+
+      assert %{target_books: ["must be greater than 0"]} = errors_on(changeset)
+
+      assert {:error, changeset} = Reading.create_goal(nil, %{}, @today)
+
+      assert %{
+               user_id: ["can't be blank"],
+               period_type: ["can't be blank"],
+               period_start: ["can't be blank"],
+               target_books: ["can't be blank"]
+             } = errors_on(changeset)
+    end
+
+    test "create_goal/3 allows one goal per type per period per user" do
+      attrs = %{period_type: :monthly, period_start: ~D[2027-01-01], target_books: 1}
+      assert {:ok, _} = Reading.create_goal(42, attrs, @today)
+
+      assert {:error, changeset} = Reading.create_goal(42, attrs, @today)
+      assert %{period_start: ["already has a goal of this type"]} = errors_on(changeset)
+
+      assert {:ok, _} = Reading.create_goal(42, %{attrs | period_type: :annual}, @today)
+      assert {:ok, _} = Reading.create_goal(43, attrs, @today)
+    end
+
+    test "update_goal/3 changes only the target" do
+      goal = insert_goal!(period_type: :monthly, period_start: ~D[2026-11-01], target_books: 2)
+
+      assert {:ok, %Goal{} = updated} =
+               Reading.update_goal(
+                 goal,
+                 %{
+                   user_id: 43,
+                   period_type: :annual,
+                   period_start: ~D[2027-01-01],
+                   target_books: 5
+                 },
+                 @today
+               )
+
+      assert %{user_id: 42, period_type: :monthly, period_start: ~D[2026-11-01]} = updated
+      assert updated.target_books == 5
+    end
+
+    test "update_goal/3 with an invalid target returns an error changeset" do
+      goal = insert_goal!(period_type: :annual, period_start: ~D[2027-01-01])
+
+      assert {:error, changeset} = Reading.update_goal(goal, %{target_books: 0}, @today)
+      assert %{target_books: ["must be greater than 0"]} = errors_on(changeset)
+      assert {:error, %Ecto.Changeset{}} = Reading.update_goal(goal, %{target_books: nil}, @today)
       assert goal == Reading.get_goal!(goal.id)
     end
 
-    test "delete_goal/1 deletes the goal" do
-      goal = goal_fixture()
-      assert {:ok, %Goal{}} = Reading.delete_goal(goal)
-      assert_raise Ecto.NoResultsError, fn -> Reading.get_goal!(goal.id) end
+    test "update_goal/3 and delete_goal/2 refuse a closed goal" do
+      goal = insert_goal!(period_type: :monthly, period_start: ~D[2026-10-01], target_books: 4)
+
+      assert {:error, :goal_closed} = Reading.update_goal(goal, %{target_books: 1}, @today)
+      assert {:error, :goal_closed} = Reading.delete_goal(goal, @today)
+      assert goal == Reading.get_goal!(goal.id)
+
+      # On its last day the goal is still current.
+      assert {:ok, %Goal{target_books: 1}} =
+               Reading.update_goal(goal, %{target_books: 1}, ~D[2026-10-31])
     end
 
-    test "change_goal/1 returns a goal changeset" do
-      goal = goal_fixture()
-      assert %Ecto.Changeset{} = Reading.change_goal(goal)
+    test "delete_goal/2 deletes a current or upcoming goal" do
+      current = insert_goal!(period_type: :annual, period_start: ~D[2026-01-01])
+      upcoming = insert_goal!(period_type: :annual, period_start: ~D[2027-01-01])
+
+      for goal <- [current, upcoming] do
+        assert {:ok, %Goal{}} = Reading.delete_goal(goal, @today)
+        assert_raise Ecto.NoResultsError, fn -> Reading.get_goal!(goal.id) end
+      end
     end
   end
 end

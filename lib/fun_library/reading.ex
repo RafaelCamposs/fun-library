@@ -286,11 +286,25 @@ defmodule FunLibrary.Reading do
   alias FunLibrary.Reading.Goal
 
   @doc """
-  Returns the list of reading_goals.
+  Returns the user's goals: current goals first, then upcoming, then
+  closed, each group newest period first. Periods are compared by their
+  last day, so an annual goal sorts after its December (and so, newest
+  first, before it). `today` is the app-timezone date (default: today).
   """
-  def list_reading_goals do
-    Repo.all(Goal)
+  def list_reading_goals(user_id, %Date{} = today \\ AppTime.today()) do
+    Repo.all(from g in Goal, where: g.user_id == ^user_id)
+    |> Enum.sort_by(fn goal ->
+      {state_rank(Goal.state(goal, today)), -Date.to_gregorian_days(Goal.period_end(goal)),
+       type_rank(goal.period_type)}
+    end)
   end
+
+  defp state_rank(:current), do: 0
+  defp state_rank(:upcoming), do: 1
+  defp state_rank(:closed), do: 2
+
+  defp type_rank(:annual), do: 0
+  defp type_rank(:monthly), do: 1
 
   @doc """
   Gets a single goal.
@@ -300,34 +314,39 @@ defmodule FunLibrary.Reading do
   def get_goal!(id), do: Repo.get!(Goal, id)
 
   @doc """
-  Creates a goal.
+  Creates a goal for `user_id` from `period_type`, `period_start` and
+  `target_books`. Only current or upcoming periods are accepted, at most
+  one goal per type per period (ADR 0006).
   """
-  def create_goal(attrs) do
-    %Goal{}
-    |> Goal.changeset(attrs)
+  def create_goal(user_id, attrs, %Date{} = today \\ AppTime.today()) do
+    %Goal{user_id: user_id}
+    |> Goal.create_changeset(attrs, today)
     |> Repo.insert()
   end
 
   @doc """
-  Updates a goal.
+  Changes an unclosed goal's target; nothing else about a goal can change.
+  Returns `{:error, :goal_closed}` for a closed goal (it is locked).
   """
-  def update_goal(%Goal{} = goal, attrs) do
-    goal
-    |> Goal.changeset(attrs)
-    |> Repo.update()
+  def update_goal(%Goal{} = goal, attrs, %Date{} = today \\ AppTime.today()) do
+    if Goal.closed?(goal, today) do
+      {:error, :goal_closed}
+    else
+      goal
+      |> Goal.target_changeset(attrs)
+      |> Repo.update()
+    end
   end
 
   @doc """
-  Deletes a goal.
+  Deletes an unclosed goal. Returns `{:error, :goal_closed}` for a closed
+  goal (it is locked).
   """
-  def delete_goal(%Goal{} = goal) do
-    Repo.delete(goal)
-  end
-
-  @doc """
-  Returns an `%Ecto.Changeset{}` for tracking goal changes.
-  """
-  def change_goal(%Goal{} = goal, attrs \\ %{}) do
-    Goal.changeset(goal, attrs)
+  def delete_goal(%Goal{} = goal, %Date{} = today \\ AppTime.today()) do
+    if Goal.closed?(goal, today) do
+      {:error, :goal_closed}
+    else
+      Repo.delete(goal)
+    end
   end
 end

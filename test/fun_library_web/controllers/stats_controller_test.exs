@@ -11,13 +11,7 @@ defmodule FunLibraryWeb.StatsControllerTest do
 
   describe "summary" do
     test "returns goal progress and currently-reading entries for the given user", %{conn: conn} do
-      goal =
-        goal_fixture(%{
-          user_id: 42,
-          period_start: ~D[2026-01-01],
-          period_end: ~D[2026-12-31],
-          target_books: 5
-        })
+      goal = goal_fixture(%{user_id: 42, target_books: 5})
 
       entry =
         reading_list_entry_fixture(%{

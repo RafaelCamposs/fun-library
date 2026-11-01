@@ -41,20 +41,38 @@ defmodule FunLibrary.ReadingFixtures do
   end
 
   @doc """
-  Generate a goal.
+  Generate a goal through `Reading.create_goal/3`, so it must be for a
+  current or upcoming period as of `:today` (default: the app's today).
+  Defaults to an annual goal for `:today`'s year.
   """
   def goal_fixture(attrs \\ %{}) do
+    attrs = Map.new(attrs)
+    {user_id, attrs} = Map.pop(attrs, :user_id, 42)
+    {today, attrs} = Map.pop(attrs, :today, FunLibrary.AppTime.today())
+
     {:ok, goal} =
       attrs
       |> Enum.into(%{
-        period_end: ~D[2026-07-18],
-        period_start: ~D[2026-07-18],
         period_type: :annual,
-        target_books: 42,
-        user_id: 42
+        period_start: Date.new!(today.year, 1, 1),
+        target_books: 42
       })
-      |> FunLibrary.Reading.create_goal()
+      |> then(&FunLibrary.Reading.create_goal(user_id, &1, today))
 
     goal
+  end
+
+  @doc """
+  Insert a goal directly, skipping the changeset's rules: for goals in
+  periods that have already ended (closed goals), which can't be created
+  through the API.
+  """
+  def insert_goal!(attrs) do
+    FunLibrary.Repo.insert!(
+      struct!(
+        FunLibrary.Reading.Goal,
+        Enum.into(attrs, %{user_id: 42, period_type: :annual, target_books: 42})
+      )
+    )
   end
 end

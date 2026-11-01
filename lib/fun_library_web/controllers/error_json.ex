@@ -24,6 +24,11 @@ defmodule FunLibraryWeb.ErrorJSON do
     }
   end
 
+  # A closed goal is locked (ADR 0006); the reason tells a stale client why.
+  def render("409.json", %{reason: :goal_closed}) do
+    %{errors: %{detail: "Conflict"}, reason: "goal_closed"}
+  end
+
   def render(template, _assigns) do
     %{errors: %{detail: Phoenix.Controller.status_message_from_template(template)}}
   end

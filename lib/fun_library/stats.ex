@@ -5,11 +5,12 @@ defmodule FunLibrary.Stats do
 
   ## Reading days
 
-  Every day-based stat (streak, activity, pace) uses one rule, the
-  glossary's **Reading day**: a session counts when it is finished and
-  advanced pages (`end_page > start_page`), and it counts entirely on the
-  calendar day its `ended_at` falls on in the app's timezone (`AppTime`) —
-  a session crossing midnight belongs to the day it ended. The rule lives
+  Every day-based stat (streak, activity, pace, a goal's also-read books)
+  uses one rule, the glossary's **Reading day**: a session counts when it
+  is finished and advanced pages (`end_page > start_page`), and it counts
+  entirely on the calendar day its `ended_at` falls on in the app's
+  timezone (`AppTime`) — a session crossing midnight belongs to the day it
+  ended. The rule lives
   in `reading_session?/1` and `reading_day/1`; nothing else restates it.
 
   ## Daily highlight
@@ -37,8 +38,8 @@ defmodule FunLibrary.Stats do
   @epoch ~D[1970-01-01]
 
   @doc """
-  Returns the dashboard summary for a user: goal progress for each of
-  their goals, the reader's open session (a `%Session{}` or `nil`), and a
+  Returns the dashboard summary for a user: progress on each of their
+  current goals, the reader's open session (a `%Session{}` or `nil`), and a
   currently-reading snapshot with each entry's last session time, current
   page, pace and days left.
   """
@@ -46,7 +47,7 @@ defmodule FunLibrary.Stats do
     today = today()
 
     %{
-      goals: list_goals(user_id) |> Enum.map(&goal_progress/1),
+      goals: current_goals_progress(user_id, today),
       open_session: Reading.get_open_session_for_user(user_id),
       currently_reading:
         currently_reading_entries(user_id) |> Enum.map(&currently_reading_entry(&1, today))
@@ -140,31 +141,132 @@ defmodule FunLibrary.Stats do
   defdelegate today, to: AppTime
   defdelegate local_date(datetime), to: AppTime
 
-  defp goal_progress(%Goal{} = goal) do
-    books_finished =
-      Repo.aggregate(
-        from(e in ReadingListEntry,
-          where:
-            e.user_id == ^goal.user_id and
-              e.status == :read and
-              e.finished_at >= ^goal.period_start and
-              e.finished_at <= ^goal.period_end
-        ),
-        :count
-      )
+  @doc """
+  Derives a goal's standing as of `today` (app timezone): its `state`
+  (`:current`, `:upcoming` or `:closed`), `period_end`, `books_finished`
+  (the user's `read` entries whose finish date falls in the goal period, as
+  the reading list is now) and `outcome` (`:achieved` when books finished
+  reached the target, else `:missed`; `nil` until the goal closes). This is
+  the one place these rules live (ADR 0006).
+  """
+  def goal_progress(%Goal{} = goal, %Date{} = today) do
+    state = Goal.state(goal, today)
+    books_finished = Repo.aggregate(books_finished_query(goal), :count)
 
     %{
-      goal_id: goal.id,
-      period_type: goal.period_type,
-      period_start: goal.period_start,
-      period_end: goal.period_end,
-      target_books: goal.target_books,
-      books_finished: books_finished
+      state: state,
+      period_end: Goal.period_end(goal),
+      books_finished: books_finished,
+      outcome: outcome(state, books_finished, goal.target_books)
     }
   end
 
-  defp list_goals(user_id) do
-    Repo.all(from g in Goal, where: g.user_id == ^user_id)
+  @doc """
+  Returns the books a goal covers, as the reading list and sessions are now:
+
+    * `finished`: its books finished, by finish date, as
+      `%{entry_id, book_id, title, cover_url, finished_at}`.
+    * `also_read`: the user's other entries with at least one reading day
+      in the goal period, by their last reading day in it, as
+      `%{entry_id, book_id, title, cover_url, label, last_reading_day}`.
+      `label` is `:carried_over` when the entry has a reading day after the
+      period or was finished (`read`) after it, otherwise the entry's
+      status. Never counted toward the goal.
+
+  An entry finished in the period without sessions (e.g. logged by hand)
+  is finished, and never also read since it has no reading days.
+  """
+  def goal_books(%Goal{} = goal) do
+    period_end = Goal.period_end(goal)
+    period = Date.range(goal.period_start, period_end)
+
+    finished =
+      Repo.all(
+        from e in books_finished_query(goal),
+          order_by: [e.finished_at, e.id],
+          preload: :book
+      )
+
+    finished_ids = MapSet.new(finished, & &1.id)
+
+    reading_days_by_entry =
+      goal.user_id
+      |> user_reading_sessions()
+      |> Enum.group_by(& &1.reading_list_entry_id, &reading_day/1)
+      |> Map.reject(fn {entry_id, days} ->
+        MapSet.member?(finished_ids, entry_id) or not Enum.any?(days, &(&1 in period))
+      end)
+
+    also_read_ids = Map.keys(reading_days_by_entry)
+
+    also_read =
+      Repo.all(from e in ReadingListEntry, where: e.id in ^also_read_ids, preload: :book)
+      |> Enum.map(fn entry ->
+        days = Map.fetch!(reading_days_by_entry, entry.id)
+
+        entry
+        |> goal_book()
+        |> Map.merge(%{
+          label: also_read_label(entry, days, period_end),
+          last_reading_day: days |> Enum.filter(&(&1 in period)) |> Enum.max(Date)
+        })
+      end)
+      |> Enum.sort_by(&{Date.to_gregorian_days(&1.last_reading_day), &1.entry_id})
+
+    %{
+      finished: Enum.map(finished, &Map.put(goal_book(&1), :finished_at, &1.finished_at)),
+      also_read: also_read
+    }
+  end
+
+  defp current_goals_progress(user_id, today) do
+    user_id
+    |> Reading.list_reading_goals(today)
+    |> Enum.filter(&(Goal.state(&1, today) == :current))
+    |> Enum.map(fn goal ->
+      progress = goal_progress(goal, today)
+
+      %{
+        goal_id: goal.id,
+        period_type: goal.period_type,
+        period_start: goal.period_start,
+        period_end: progress.period_end,
+        target_books: goal.target_books,
+        books_finished: progress.books_finished
+      }
+    end)
+  end
+
+  defp books_finished_query(%Goal{} = goal) do
+    from e in ReadingListEntry,
+      where:
+        e.user_id == ^goal.user_id and
+          e.status == :read and
+          e.finished_at >= ^goal.period_start and
+          e.finished_at <= ^Goal.period_end(goal)
+  end
+
+  defp outcome(:closed, books_finished, target) when books_finished >= target, do: :achieved
+  defp outcome(:closed, _books_finished, _target), do: :missed
+  defp outcome(_unclosed, _books_finished, _target), do: nil
+
+  defp goal_book(%ReadingListEntry{} = entry) do
+    %{
+      entry_id: entry.id,
+      book_id: entry.book_id,
+      title: entry.book.title,
+      cover_url: entry.book.cover_url
+    }
+  end
+
+  defp also_read_label(%ReadingListEntry{} = entry, reading_days, period_end) do
+    read_after_period? = Enum.any?(reading_days, &Date.after?(&1, period_end))
+
+    finished_after_period? =
+      entry.status == :read and not is_nil(entry.finished_at) and
+        Date.after?(entry.finished_at, period_end)
+
+    if read_after_period? or finished_after_period?, do: :carried_over, else: entry.status
   end
 
   defp currently_reading_entries(user_id) do
