@@ -34,6 +34,10 @@ _Avoid_: Search, fetch (as a domain term — "fetch" is fine as implementation d
 **Confirm** (adding to the reading list):
 The second step of adding a book: given (possibly user-edited) attributes from a prior lookup, find-or-create the `Book` and create a `ReadingListEntry` for the user. This is the only step that persists data.
 
+**Session highlight**:
+A short passage or reflection, up to one paragraph, a reader captures from a book against a finished `Session`. Optional, and unlike the rest of a finished session's data, editable afterward through its own route.
+_Avoid_: Note, comment, log entry
+
 **Reading day**:
 A calendar day, in the app's timezone, on which at least one finished session ended having advanced pages (end page after start page). Reading several books on the same day still makes one reading day.
 _Avoid_: Active day, streak day

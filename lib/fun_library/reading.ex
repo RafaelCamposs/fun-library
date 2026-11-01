@@ -177,6 +177,23 @@ defmodule FunLibrary.Reading do
   end
 
   @doc """
+  Sets (or clears, with `nil`) a finished session's `highlight`.
+
+  Fails with `{:error, :session_not_finished}` if the session is still
+  open (`ended_at` is `nil`) — a highlight only makes sense once a session
+  has an end to attach to.
+  """
+  def update_session_highlight(%Session{ended_at: nil}, _attrs) do
+    {:error, :session_not_finished}
+  end
+
+  def update_session_highlight(%Session{} = session, attrs) do
+    session
+    |> Session.highlight_changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
   Deletes a session.
   """
   def delete_session(%Session{} = session) do

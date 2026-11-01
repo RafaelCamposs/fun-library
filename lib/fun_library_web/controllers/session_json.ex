@@ -22,7 +22,8 @@ defmodule FunLibraryWeb.SessionJSON do
       start_page: session.start_page,
       end_page: session.end_page,
       started_at: session.started_at,
-      ended_at: session.ended_at
+      ended_at: session.ended_at,
+      highlight: session.highlight
     }
   end
 end

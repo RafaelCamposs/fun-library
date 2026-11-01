@@ -29,6 +29,13 @@ defmodule FunLibraryWeb.FallbackController do
     |> render(:"409")
   end
 
+  def call(conn, {:error, :session_not_finished}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> put_view(json: FunLibraryWeb.ErrorJSON)
+    |> render(:"422")
+  end
+
   def call(conn, {:error, :isbn_invalid}) do
     conn
     |> put_status(:unprocessable_entity)

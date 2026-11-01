@@ -26,6 +26,7 @@ defmodule FunLibraryWeb.Router do
 
     resources "/reading_sessions", SessionController, only: [:show, :delete]
     patch "/reading_sessions/:id/finish", SessionController, :finish
+    patch "/reading_sessions/:id/highlight", SessionController, :update_highlight
 
     resources "/reading_goals", GoalController, except: [:new, :edit]
   end

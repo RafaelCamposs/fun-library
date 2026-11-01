@@ -8,9 +8,12 @@ defmodule FunLibrary.Reading.Session do
     field :end_page, :integer
     field :started_at, :utc_datetime
     field :ended_at, :utc_datetime
+    field :highlight, :string
 
     timestamps(type: :utc_datetime)
   end
+
+  @highlight_max_length 500
 
   @doc false
   def start_changeset(session, attrs) do
@@ -28,6 +31,13 @@ defmodule FunLibrary.Reading.Session do
     |> validate_required([:end_page, :ended_at])
     |> validate_number(:end_page, greater_than_or_equal_to: 0)
     |> validate_end_page()
+  end
+
+  @doc false
+  def highlight_changeset(session, attrs) do
+    session
+    |> cast(attrs, [:highlight])
+    |> validate_length(:highlight, max: @highlight_max_length)
   end
 
   defp validate_end_page(changeset) do

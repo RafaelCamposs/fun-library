@@ -101,6 +101,52 @@ defmodule FunLibraryWeb.SessionControllerTest do
     end
   end
 
+  describe "update highlight" do
+    setup [:create_session]
+
+    test "renders session when the session is finished", %{conn: conn, session: session} do
+      conn =
+        patch(conn, ~p"/api/reading_sessions/#{session}/finish",
+          session: %{"end_page" => 30, "ended_at" => ~U[2026-07-18 20:00:00Z]}
+        )
+
+      assert %{"id" => id} = json_response(conn, 200)["data"]
+
+      conn =
+        patch(conn, ~p"/api/reading_sessions/#{id}/highlight",
+          session: %{"highlight" => "A line worth remembering."}
+        )
+
+      assert %{"id" => ^id, "highlight" => "A line worth remembering."} =
+               json_response(conn, 200)["data"]
+    end
+
+    test "renders errors when the highlight is too long", %{conn: conn, session: session} do
+      conn =
+        patch(conn, ~p"/api/reading_sessions/#{session}/finish",
+          session: %{"end_page" => 30, "ended_at" => ~U[2026-07-18 20:00:00Z]}
+        )
+
+      assert %{"id" => id} = json_response(conn, 200)["data"]
+
+      conn =
+        patch(conn, ~p"/api/reading_sessions/#{id}/highlight",
+          session: %{"highlight" => String.duplicate("a", 501)}
+        )
+
+      assert json_response(conn, 422)["errors"] != %{}
+    end
+
+    test "renders an error when the session is still open", %{conn: conn, session: session} do
+      conn =
+        patch(conn, ~p"/api/reading_sessions/#{session}/highlight",
+          session: %{"highlight" => "Too soon"}
+        )
+
+      assert json_response(conn, 422)["errors"] != %{}
+    end
+  end
+
   describe "delete session" do
     setup [:create_session]
 
