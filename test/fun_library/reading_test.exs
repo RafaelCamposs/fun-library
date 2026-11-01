@@ -340,6 +340,64 @@ defmodule FunLibrary.ReadingTest do
       assert Reading.get_open_session(entry.id) == nil
     end
 
+    test "update_session_highlight/2 sets the highlight on a finished session" do
+      entry = reading_list_entry_fixture()
+      session = session_fixture(entry.id)
+
+      {:ok, session} =
+        Reading.finish_session(session, %{
+          "end_page" => 10,
+          "ended_at" => ~U[2026-07-18 20:00:00Z]
+        })
+
+      assert {:ok, %Session{highlight: "A line worth remembering."}} =
+               Reading.update_session_highlight(session, %{
+                 "highlight" => "A line worth remembering."
+               })
+    end
+
+    test "update_session_highlight/2 clears the highlight back to nil" do
+      entry = reading_list_entry_fixture()
+      session = session_fixture(entry.id)
+
+      {:ok, session} =
+        Reading.finish_session(session, %{
+          "end_page" => 10,
+          "ended_at" => ~U[2026-07-18 20:00:00Z]
+        })
+
+      {:ok, session} = Reading.update_session_highlight(session, %{"highlight" => "Something"})
+
+      assert {:ok, %Session{highlight: nil}} =
+               Reading.update_session_highlight(session, %{"highlight" => nil})
+    end
+
+    test "update_session_highlight/2 rejects a highlight over 500 characters" do
+      entry = reading_list_entry_fixture()
+      session = session_fixture(entry.id)
+
+      {:ok, session} =
+        Reading.finish_session(session, %{
+          "end_page" => 10,
+          "ended_at" => ~U[2026-07-18 20:00:00Z]
+        })
+
+      assert {:error, changeset} =
+               Reading.update_session_highlight(session, %{
+                 "highlight" => String.duplicate("a", 501)
+               })
+
+      assert "should be at most 500 character(s)" in errors_on(changeset).highlight
+    end
+
+    test "update_session_highlight/2 fails when the session is still open" do
+      entry = reading_list_entry_fixture()
+      session = session_fixture(entry.id)
+
+      assert {:error, :session_not_finished} =
+               Reading.update_session_highlight(session, %{"highlight" => "Too soon"})
+    end
+
     test "delete_session/1 deletes the session" do
       entry = reading_list_entry_fixture()
       session = session_fixture(entry.id)

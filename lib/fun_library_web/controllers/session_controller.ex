@@ -33,6 +33,14 @@ defmodule FunLibraryWeb.SessionController do
     end
   end
 
+  def update_highlight(conn, %{"id" => id, "session" => session_params}) do
+    session = Reading.get_session!(id)
+
+    with {:ok, %Session{} = session} <- Reading.update_session_highlight(session, session_params) do
+      render(conn, :show, session: session)
+    end
+  end
+
   def delete(conn, %{"id" => id}) do
     session = Reading.get_session!(id)
 
