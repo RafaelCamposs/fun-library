@@ -5,7 +5,7 @@ defmodule FunLibrary.Stats do
   """
 
   import Ecto.Query, warn: false
-  alias FunLibrary.Repo
+  alias FunLibrary.{AppTime, Repo}
   alias FunLibrary.Reading.{Goal, ReadingListEntry, Session}
 
   @doc """
@@ -21,20 +21,25 @@ defmodule FunLibrary.Stats do
   end
 
   @doc """
-  Returns per-entry stats: percent complete, days elapsed, and a
-  pages-read-per-day series (bucketed by the day each session ended, in
-  the app's timezone).
+  Returns per-entry stats: percent complete, days elapsed, the reading
+  span, and a pages-read-per-day series (bucketed by the day each session
+  ended, in the app's timezone, and limited to the reading span).
+
+  The reading span is `%{start_date, end_date}`, or `nil` when the entry
+  has no start date. See `docs/adr/0003-reading-span-bounds-the-book-chart.md`.
 
   Raises `Ecto.NoResultsError` if the reading list entry does not exist.
   """
   def entry_stats(entry_id) do
     entry = Repo.get!(ReadingListEntry, entry_id) |> Repo.preload(:book)
     sessions = list_sessions(entry_id)
+    span = reading_span(entry, sessions)
 
     %{
       percent_complete: percent_complete(entry, sessions),
       days_elapsed: days_elapsed(entry),
-      pages_per_day: pages_per_day(sessions)
+      reading_span: span,
+      pages_per_day: pages_per_day(sessions, span)
     }
   end
 
@@ -57,19 +62,8 @@ defmodule FunLibrary.Stats do
     %{current: count_streak(reading_dates, start_date), record: longest_run(reading_dates)}
   end
 
-  @doc """
-  Returns today's date in the app's timezone (see `:utc_offset_minutes`).
-  """
-  def today, do: local_date(DateTime.utc_now())
-
-  @doc """
-  Returns the calendar date of a UTC datetime in the app's timezone.
-  """
-  def local_date(%DateTime{} = datetime) do
-    datetime
-    |> DateTime.add(Application.fetch_env!(:fun_library, :utc_offset_minutes), :minute)
-    |> DateTime.to_date()
-  end
+  defdelegate today, to: AppTime
+  defdelegate local_date(datetime), to: AppTime
 
   defp goal_progress(%Goal{} = goal) do
     books_finished =
@@ -192,9 +186,34 @@ defmodule FunLibrary.Stats do
     Date.diff(finished_at || today(), started_at)
   end
 
-  defp pages_per_day(sessions) do
+  defp reading_span(%ReadingListEntry{started_at: nil}, _sessions), do: nil
+
+  defp reading_span(%ReadingListEntry{started_at: start_date} = entry, sessions) do
+    end_date =
+      case entry.status do
+        :read -> entry.finished_at || last_reading_day(sessions) || start_date
+        :reading -> today()
+        _ -> last_reading_day(sessions) || start_date
+      end
+
+    %{start_date: start_date, end_date: Enum.max([start_date, end_date], Date)}
+  end
+
+  defp last_reading_day(sessions) do
+    sessions
+    |> Enum.filter(&(&1.ended_at && &1.end_page && &1.end_page > &1.start_page))
+    |> Enum.map(&local_date(&1.ended_at))
+    |> Enum.max(Date, fn -> nil end)
+  end
+
+  defp pages_per_day(_sessions, nil), do: []
+
+  defp pages_per_day(sessions, %{start_date: start_date, end_date: end_date}) do
+    span = Date.range(start_date, end_date)
+
     sessions
     |> Enum.filter(&(&1.ended_at && &1.end_page))
+    |> Enum.filter(&(local_date(&1.ended_at) in span))
     |> Enum.group_by(&local_date(&1.ended_at), &(&1.end_page - &1.start_page))
     |> Enum.map(fn {date, pages_read} -> %{date: date, pages_read: Enum.sum(pages_read)} end)
     |> Enum.sort_by(& &1.date, Date)

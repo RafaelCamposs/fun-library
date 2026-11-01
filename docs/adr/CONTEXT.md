@@ -16,8 +16,16 @@ _Avoid_: Library (ambiguous with the `Library` context), collection
 A user's relationship to a specific `Book` — carries `status`, `started_at`, `finished_at`. This is where per-user reading state lives, deliberately separated from `Book` so the same catalog entry can eventually be shared across tenants. One entry per `(user, book)` pair — re-reads (multiple entries for the same book) are a deferred concept, not yet supported.
 _Avoid_: UserBook, LibraryEntry
 
+**Start date** / **Finish date** (of a reading list entry):
+The calendar days, in the app's timezone, the reader started and finished the book. Set automatically from the session that triggered them: the start date is the day the first session started, the finish date is the day the finishing session ended. Either can be edited by hand (e.g. logging a book read before using the app), and the edited value is authoritative.
+_Avoid_: Started/finished timestamp (they are days, not instants)
+
 **Status** (of a reading list entry):
 Where a user is with a book: `want_to`, `reading`, `read`, `stopped`, `unfinished`. Lives on `ReadingListEntry`, never on `Book`.
+
+**Reading span** (of a reading list entry):
+The range of calendar days a book's pages-per-day chart covers. Starts on the start date; ends on the finish date for a `read` book, today for a `reading` book, and the book's last reading day (or the start date, if none) for a `stopped` or `unfinished` book. No start date means no reading span. Sessions outside the span still count everywhere else, they are just not charted.
+_Avoid_: Chart window (the window is the 7 visible days inside the span), reading period
 
 **Lookup** (BookLookup context):
 The read-only act of fetching bibliographic data for an ISBN from an external source (Google Books) without persisting anything. Returns a preview the caller can inspect before deciding to add it.

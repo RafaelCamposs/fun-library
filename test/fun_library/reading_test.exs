@@ -122,6 +122,31 @@ defmodule FunLibrary.ReadingTest do
       assert updated_entry.status == :reading
     end
 
+    test "start_session/2 sets started_at to the session's start day in the app's timezone" do
+      entry = reading_list_entry_fixture(status: :want_to)
+
+      # 22:00 at UTC-3 on Jul 18 is already Jul 19 in UTC.
+      assert {:ok, _session} =
+               Reading.start_session(entry.id, %{
+                 "start_page" => 0,
+                 "started_at" => ~U[2026-07-19 01:00:00Z]
+               })
+
+      assert Reading.get_reading_list_entry!(entry.id).started_at == ~D[2026-07-18]
+    end
+
+    test "start_session/2 keeps an existing started_at" do
+      entry = reading_list_entry_fixture(status: :stopped, started_at: ~D[2026-07-01])
+
+      assert {:ok, _session} =
+               Reading.start_session(entry.id, %{
+                 "start_page" => 0,
+                 "started_at" => ~U[2026-07-18 18:46:00Z]
+               })
+
+      assert Reading.get_reading_list_entry!(entry.id).started_at == ~D[2026-07-01]
+    end
+
     test "start_session/2 flips a :stopped entry back to :reading" do
       entry = reading_list_entry_fixture(status: :stopped, started_at: ~D[2026-07-01])
 
@@ -210,7 +235,7 @@ defmodule FunLibrary.ReadingTest do
 
       updated_entry = Reading.get_reading_list_entry!(entry.id)
       assert updated_entry.status == :read
-      assert updated_entry.finished_at == Date.utc_today()
+      assert updated_entry.finished_at == ~D[2026-07-18]
     end
 
     test "finish_session/2 can finish an entry with updated total pages" do
@@ -227,7 +252,38 @@ defmodule FunLibrary.ReadingTest do
 
       updated_entry = Reading.get_reading_list_entry!(entry.id)
       assert updated_entry.status == :read
-      assert updated_entry.finished_at == Date.utc_today()
+      assert updated_entry.finished_at == ~D[2026-07-18]
+    end
+
+    test "finish_session/2 dates a late-evening finish on the app's day, not the UTC day" do
+      entry =
+        reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 100)
+
+      session = session_fixture(entry.id, %{"start_page" => 0})
+
+      # 22:30 at UTC-3 on Jul 18 is already Jul 19 in UTC.
+      assert {:ok, _session} =
+               Reading.finish_session(session, %{
+                 "end_page" => 100,
+                 "ended_at" => ~U[2026-07-19 01:30:00Z]
+               })
+
+      assert Reading.get_reading_list_entry!(entry.id).finished_at == ~D[2026-07-18]
+    end
+
+    test "finish_session/2 dates the entry by the session's end, not when it was logged" do
+      entry =
+        reading_list_entry_fixture(book_id: book_fixture(total_pages: 100).id, total_pages: 100)
+
+      session = session_fixture(entry.id, %{"start_page" => 0})
+
+      assert {:ok, _session} =
+               Reading.finish_session(session, %{
+                 "end_page" => 100,
+                 "ended_at" => ~U[2026-03-02 15:00:00Z]
+               })
+
+      assert Reading.get_reading_list_entry!(entry.id).finished_at == ~D[2026-03-02]
     end
 
     test "finish_session/2 rejects end_page lower than start_page" do
