@@ -494,7 +494,14 @@ paths:
   /reading_goals:
     get:
       tags: [Reading Goals]
-      summary: List reading goals
+      summary: List a user's reading goals
+      description: >
+        The user's goals with their derived state, books finished and outcome
+        (ADR 0006): current goals first, then upcoming, then closed, each group
+        newest period first. Periods compare by their last day, so an annual
+        goal sorts after its December (newest first: before it).
+      parameters:
+        - $ref: "#/components/parameters/UserIdQuery"
       responses:
         "200":
           description: OK
@@ -510,6 +517,12 @@ paths:
     post:
       tags: [Reading Goals]
       summary: Create a reading goal
+      description: >
+        Creates a goal for one goal period: `period_start` must be the first
+        day of a year (annual) or month (monthly), the period must be current
+        or upcoming (app timezone), `target_books` must be positive, and the
+        user may have at most one goal of each type per period. Fails with 422
+        for a duplicate, past or misaligned period (error on `period_start`).
       requestBody:
         required: true
         content:
@@ -542,7 +555,16 @@ paths:
       - $ref: "#/components/parameters/Id"
     get:
       tags: [Reading Goals]
-      summary: Get a reading goal
+      summary: Get a reading goal with its books
+      description: >
+        The goal plus the books it covers, derived from the reading list and
+        sessions as they are now. `finished` holds its books finished, by
+        finish date. `also_read` holds the user's other entries with at least
+        one reading day in the period, by their last reading day in it; each
+        is `carried_over` when it has a reading day after the period or was
+        finished after it, otherwise labelled with its entry status. Books
+        with no reading days (e.g. logged by hand) never appear in
+        `also_read`.
       responses:
         "200":
           description: OK
@@ -552,12 +574,15 @@ paths:
                 type: object
                 properties:
                   data:
-                    $ref: "#/components/schemas/Goal"
+                    $ref: "#/components/schemas/GoalDetail"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
       tags: [Reading Goals]
-      summary: Update a reading goal
+      summary: Change a reading goal's target
+      description: >
+        Only `target_books` can change; any other field is ignored. Fails with
+        409 when the goal is closed (closed goals are locked, ADR 0006).
       requestBody:
         required: true
         content:
@@ -567,7 +592,7 @@ paths:
               required: [goal]
               properties:
                 goal:
-                  $ref: "#/components/schemas/GoalInput"
+                  $ref: "#/components/schemas/GoalTargetInput"
       responses:
         "200":
           description: OK
@@ -580,23 +605,28 @@ paths:
                     $ref: "#/components/schemas/Goal"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/GoalClosed"
         "422":
           $ref: "#/components/responses/ChangesetError"
     delete:
       tags: [Reading Goals]
       summary: Delete a reading goal
+      description: Fails with 409 when the goal is closed (locked, ADR 0006).
       responses:
         "204":
           description: No Content
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/GoalClosed"
 
   /stats:
     get:
       tags: [Stats]
       summary: Dashboard summary for a user
       description: >
-        Goal progress for each of the user's goals, the reader's open session
+        Goal progress for each of the user's current goals, the reader's open session
         (or null), and a currently-reading snapshot with each entry's last
         session time, current page, pace and days left.
       parameters:
@@ -744,6 +774,23 @@ components:
         type: integer
 
   responses:
+    GoalClosed:
+      description: The goal is closed, so it is locked (ADR 0006)
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [errors, reason]
+            properties:
+              errors:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Conflict
+              reason:
+                type: string
+                enum: [goal_closed]
     NotFound:
       description: Not Found
       content:
@@ -894,15 +941,76 @@ components:
         period_start:
           type: string
           format: date
+          description: First day of the goal period (a year or a month).
         period_end:
           type: string
           format: date
+          description: Last day of the goal period; derived, not stored.
         target_books:
           type: integer
+        state:
+          type: string
+          enum: [current, upcoming, closed]
+          description: Derived from today (app timezone) versus the goal period.
+        books_finished:
+          type: integer
+          description: The user's `read` entries whose finish date is in the goal period.
+        outcome:
+          type: string
+          enum: [achieved, missed]
+          nullable: true
+          description: Null until the goal is closed.
+
+    GoalBook:
+      type: object
+      properties:
+        entry_id:
+          type: integer
+        book_id:
+          type: integer
+        title:
+          type: string
+        cover_url:
+          type: string
+          nullable: true
+
+    GoalDetail:
+      allOf:
+        - $ref: "#/components/schemas/Goal"
+        - type: object
+          properties:
+            finished:
+              type: array
+              items:
+                allOf:
+                  - $ref: "#/components/schemas/GoalBook"
+                  - type: object
+                    properties:
+                      finished_at:
+                        type: string
+                        format: date
+            also_read:
+              type: array
+              items:
+                allOf:
+                  - $ref: "#/components/schemas/GoalBook"
+                  - type: object
+                    properties:
+                      label:
+                        type: string
+                        enum: [carried_over, reading, stopped, unfinished, want_to, read]
+                        description: >
+                          `carried_over`, or else the entry's status. `want_to` and
+                          `read` (finished before the period) only arise from hand
+                          edits.
+                      last_reading_day:
+                        type: string
+                        format: date
+                        description: The entry's last reading day within the goal period.
 
     GoalInput:
       type: object
-      required: [user_id, period_type, period_start, period_end, target_books]
+      required: [user_id, period_type, period_start, target_books]
       properties:
         user_id:
           type: integer
@@ -911,11 +1019,19 @@ components:
         period_start:
           type: string
           format: date
-        period_end:
-          type: string
-          format: date
+          description: >
+            First day of a current or upcoming year (annual) or month (monthly).
         target_books:
           type: integer
+          minimum: 1
+
+    GoalTargetInput:
+      type: object
+      required: [target_books]
+      properties:
+        target_books:
+          type: integer
+          minimum: 1
 
     OpenSession:
       type: object

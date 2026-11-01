@@ -70,9 +70,41 @@ _Avoid_: Days streak
 The longest run of consecutive reading days in the user's whole reading history. It is always derived from the sessions as they exist now, so editing or deleting sessions can lower it.
 _Avoid_: Best streak, high score, max streak
 
+**Goal**:
+A reader's target number of books to finish within one goal period. A reader has at most one goal of each type (annual, monthly) per goal period.
+_Avoid_: Challenge, target (as the name of the whole thing — "target" is the number of books)
+
+**Goal period**:
+The calendar span a goal covers: one calendar year for an annual goal, one calendar month for a monthly goal, in the app's timezone. It is fixed by the goal's type and its year or month, never by arbitrary dates.
+_Avoid_: Range, window, timeframe
+
+**Current goal** / **Upcoming goal**:
+A current goal's goal period contains today; an upcoming goal's period starts after today. Goals can only be created for current or upcoming periods, and until they close their target can be changed and they can be deleted. A goal's type and period never change; moving a goal means deleting it and creating another.
+_Avoid_: Active goal, open goal (open is reserved for sessions), future goal
+
+**Books finished** (toward a goal):
+The reader's reading list entries with status `read` whose finish date falls within the goal period. Always derived from the reading list as it is now, so editing a finish date can change a past goal's count.
+_Avoid_: Books read, completed books
+
+**Carried over** (in a goal period):
+A book the reader had reading days on within a goal period without finishing it there, and kept reading in a later period. Shown on that goal alongside its books finished, but never counted toward it. In the period where the book's reading ends, it shows its outcome instead: finished there, or its entry status (reading, on hold, did not finish).
+_Avoid_: Unfinished (that is an entry status — the reader gave up), not finished, in progress
+
+**Closed goal**:
+A goal whose goal period has ended — today, in the app's timezone, is after its last day. Closing is not an event and nothing is stored; a goal is closed purely by the calendar. A closed goal is locked: its target cannot be changed and it cannot be deleted, though its books finished can still move.
+_Avoid_: Finished goal, expired goal, archived goal
+
+**Achieved** / **Missed** (of a closed goal):
+A closed goal is achieved when its books finished reached its target, otherwise missed. Like books finished, this is derived, never frozen.
+_Avoid_: Completed / failed
+
+**Goal history**:
+The reader's closed goals, newest period first, annual and monthly together. Periods without a goal don't appear.
+_Avoid_: Archive, log
+
 ## Reading (context)
 
-Owns per-user reading state and progress: `ReadingListEntry`, `Session`, `Goal`. A `Session` and a `Goal` both reference a `ReadingListEntry`, not a `Book` directly — progress and goals belong to a specific reader's relationship with a book, not to the shared catalog entry.
+Owns per-user reading state and progress: `ReadingListEntry`, `Session`, `Goal`. A `Session` references a `ReadingListEntry`, not a `Book` directly — progress belongs to a specific reader's relationship with a book, not to the shared catalog entry. A `Goal` belongs to the reader and is measured against their reading list entries finished within its goal period.
 
 ## Library (context)
 
