@@ -110,6 +110,105 @@ defmodule FunLibraryWeb.StatsControllerTest do
     end
   end
 
+  describe "entry stats reading span" do
+    test "spans start date to finish date for a read book", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{book_id: book_fixture(%{total_pages: 30}).id})
+
+      read_pages_on(entry.id, ~D[2026-07-10], 0, 10)
+      read_pages_on(entry.id, ~D[2026-07-12], 10, 30)
+
+      data = entry_stats(conn, entry)
+
+      assert data["reading_span"] == %{"start_date" => "2026-07-10", "end_date" => "2026-07-12"}
+
+      assert data["pages_per_day"] == [
+               %{"date" => "2026-07-10", "pages_read" => 10},
+               %{"date" => "2026-07-12", "pages_read" => 20}
+             ]
+    end
+
+    test "ends on the app's day when the book is finished late in the evening", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{book_id: book_fixture(%{total_pages: 30}).id})
+
+      # 22:30 at UTC-3 on Jul 10 is already Jul 11 in UTC.
+      session =
+        session_fixture(entry.id, %{"start_page" => 0, "started_at" => ~U[2026-07-11 00:00:00Z]})
+
+      {:ok, _} =
+        Reading.finish_session(session, %{
+          "end_page" => 30,
+          "ended_at" => ~U[2026-07-11 01:30:00Z]
+        })
+
+      data = entry_stats(conn, entry)
+
+      assert data["reading_span"] == %{"start_date" => "2026-07-10", "end_date" => "2026-07-10"}
+      assert data["pages_per_day"] == [%{"date" => "2026-07-10", "pages_read" => 30}]
+    end
+
+    test "leaves out sessions after a hand-edited finish date", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{book_id: book_fixture(%{total_pages: 30}).id})
+
+      read_pages_on(entry.id, ~D[2026-07-10], 0, 10)
+      read_pages_on(entry.id, ~D[2026-07-12], 10, 30)
+
+      {:ok, entry} =
+        Reading.update_reading_list_entry(entry, %{finished_at: ~D[2026-07-11]})
+
+      data = entry_stats(conn, entry)
+
+      assert data["reading_span"] == %{"start_date" => "2026-07-10", "end_date" => "2026-07-11"}
+      assert data["pages_per_day"] == [%{"date" => "2026-07-10", "pages_read" => 10}]
+    end
+
+    test "ends today for a book being read", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{book_id: book_fixture(%{total_pages: 100}).id})
+
+      read_pages_on(entry.id, ~D[2026-07-10], 0, 10)
+
+      data = entry_stats(conn, entry)
+
+      assert data["reading_span"] == %{
+               "start_date" => "2026-07-10",
+               "end_date" => Date.to_iso8601(Stats.today())
+             }
+    end
+
+    test "ends on the last reading day for a stopped book", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{book_id: book_fixture(%{total_pages: 100}).id})
+
+      read_pages_on(entry.id, ~D[2026-07-10], 0, 10)
+      read_pages_on(entry.id, ~D[2026-07-14], 10, 25)
+      # A session that advanced no pages is not a reading day.
+      read_pages_on(entry.id, ~D[2026-07-20], 25, 25)
+
+      {:ok, entry} = Reading.update_reading_list_entry(entry, %{status: :stopped})
+
+      assert entry_stats(conn, entry)["reading_span"] == %{
+               "start_date" => "2026-07-10",
+               "end_date" => "2026-07-14"
+             }
+    end
+
+    test "is just the start date for an unfinished book with no reading days", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{status: :unfinished, started_at: ~D[2026-07-10]})
+
+      assert entry_stats(conn, entry)["reading_span"] == %{
+               "start_date" => "2026-07-10",
+               "end_date" => "2026-07-10"
+             }
+    end
+
+    test "is null with no pages per day when the entry has no start date", %{conn: conn} do
+      entry = reading_list_entry_fixture(%{status: :read, finished_at: ~D[2026-07-10]})
+
+      data = entry_stats(conn, entry)
+
+      assert data["reading_span"] == nil
+      assert data["pages_per_day"] == []
+    end
+  end
+
   describe "streak" do
     test "counts consecutive days ending today", %{conn: conn} do
       entry = reading_list_entry_fixture(%{user_id: 43})
@@ -214,6 +313,24 @@ defmodule FunLibraryWeb.StatsControllerTest do
         "end_page" => 10,
         "ended_at" => DateTime.add(local_noon(date), 1, :hour)
       })
+  end
+
+  defp read_pages_on(entry_id, date, start_page, end_page) do
+    session =
+      session_fixture(entry_id, %{"start_page" => start_page, "started_at" => local_noon(date)})
+
+    {:ok, _} =
+      Reading.finish_session(session, %{
+        "end_page" => end_page,
+        "ended_at" => DateTime.add(local_noon(date), 1, :hour)
+      })
+  end
+
+  defp entry_stats(conn, entry) do
+    conn
+    |> get(~p"/api/reading_list_entries/#{entry}/stats")
+    |> json_response(200)
+    |> Map.fetch!("data")
   end
 
   # Noon on `date` in the app's timezone, expressed as a UTC datetime.

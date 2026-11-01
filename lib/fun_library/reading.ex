@@ -5,7 +5,7 @@ defmodule FunLibrary.Reading do
 
   import Ecto.Query, warn: false
   alias FunLibrary.Repo
-  alias FunLibrary.Library
+  alias FunLibrary.{AppTime, Library}
   alias FunLibrary.Reading.ReadingListEntry
 
   ## Reading list entries
@@ -121,7 +121,7 @@ defmodule FunLibrary.Reading do
 
   Fails with `{:error, :session_already_open}` if the entry already has an
   unfinished session. On success, flips the entry to `:reading` and sets
-  `started_at` if needed.
+  `started_at` to the session's start day (in the app's timezone) if needed.
   """
   def start_session(entry_id, attrs) do
     if get_open_session(entry_id) do
@@ -130,7 +130,7 @@ defmodule FunLibrary.Reading do
       attrs = Map.put(attrs, "reading_list_entry_id", entry_id)
 
       with {:ok, session} <- %Session{} |> Session.start_changeset(attrs) |> Repo.insert() do
-        mark_entry_started(entry_id)
+        mark_entry_started(entry_id, AppTime.local_date(session.started_at))
         {:ok, session}
       end
     end
@@ -139,8 +139,9 @@ defmodule FunLibrary.Reading do
   @doc """
   Finishes an open reading session, recording the ending page and time.
 
-  On success, flips the entry to `:read` and sets `finished_at` if the
-  session's `end_page` reached the book's `total_pages`.
+  On success, flips the entry to `:read` and sets `finished_at` to the
+  session's end day (in the app's timezone) if the session's `end_page`
+  reached the book's `total_pages`.
   """
   def finish_session(%Session{} = session, attrs) do
     changeset =
@@ -149,7 +150,12 @@ defmodule FunLibrary.Reading do
       |> validate_end_page_within_total_pages(session.reading_list_entry_id)
 
     with {:ok, session} <- Repo.update(changeset) do
-      maybe_finish_entry(session.reading_list_entry_id, session.end_page)
+      maybe_finish_entry(
+        session.reading_list_entry_id,
+        session.end_page,
+        AppTime.local_date(session.ended_at)
+      )
+
       {:ok, session}
     end
   end
@@ -181,17 +187,17 @@ defmodule FunLibrary.Reading do
 
   @doc """
   Marks a reading list entry as being read: flips a `:want_to`, `:stopped`,
-  or `:unfinished` entry to `:reading`, and sets `started_at` if it hasn't
-  been set yet. No-op if neither applies (e.g. already `:reading`, or
-  `:read`).
+  or `:unfinished` entry to `:reading`, and sets `started_at` to
+  `started_on` if it hasn't been set yet. No-op if neither applies (e.g.
+  already `:reading`, or `:read`).
   """
-  def mark_entry_started(entry_id) do
+  def mark_entry_started(entry_id, %Date{} = started_on) do
     entry = get_reading_list_entry!(entry_id)
 
     changes =
       %{}
       |> maybe_put_change(:status, :reading, entry.status in @resumable_statuses)
-      |> maybe_put_change(:started_at, Date.utc_today(), is_nil(entry.started_at))
+      |> maybe_put_change(:started_at, started_on, is_nil(entry.started_at))
 
     if changes == %{} do
       entry
@@ -203,16 +209,16 @@ defmodule FunLibrary.Reading do
 
   @doc """
   Marks a reading list entry as finished (`status: :read`, `finished_at`
-  set) if the given page reached the book's total page count. No-op
-  otherwise.
+  set to `finished_on`) if the given page reached the book's total page
+  count. No-op otherwise.
   """
-  def maybe_finish_entry(entry_id, end_page) do
+  def maybe_finish_entry(entry_id, end_page, %Date{} = finished_on) do
     entry = get_reading_list_entry!(entry_id)
     total_pages = get_total_pages(entry)
 
     if total_pages && end_page && end_page >= total_pages do
       {:ok, updated} =
-        update_reading_list_entry(entry, %{status: :read, finished_at: Date.utc_today()})
+        update_reading_list_entry(entry, %{status: :read, finished_at: finished_on})
 
       updated
     else

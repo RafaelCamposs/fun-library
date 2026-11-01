@@ -603,7 +603,12 @@ paths:
     get:
       tags: [Stats]
       summary: Per-entry stats
-      description: Percent complete, days elapsed, and a pages-read-per-day series.
+      description: |
+        Percent complete, days elapsed, the reading span, and a pages-read-per-day
+        series limited to the reading span. All dates are calendar days in the app's
+        timezone. The span starts on the entry's start date and ends on its finish
+        date (`read`), today (`reading`), or the last reading day, falling back to
+        the start date (`stopped` / `unfinished`). See ADR 0003.
       responses:
         "200":
           description: OK
@@ -887,8 +892,20 @@ components:
         days_elapsed:
           type: integer
           nullable: true
+        reading_span:
+          type: object
+          nullable: true
+          description: Null when the entry has no start date.
+          properties:
+            start_date:
+              type: string
+              format: date
+            end_date:
+              type: string
+              format: date
         pages_per_day:
           type: array
+          description: Only days with reading, within the reading span, oldest first.
           items:
             type: object
             properties:
